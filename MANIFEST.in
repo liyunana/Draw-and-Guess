@@ -1,0 +1,13 @@
+# MANIFEST.in - 打包时包含的额外文件
+
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+
+recursive-include data *.txt
+recursive-include assets *.png *.jpg *.wav *.mp3
+recursive-include docs *.md
+
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]

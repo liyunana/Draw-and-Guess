@@ -128,6 +128,43 @@ src/
     └── protocols.py # 通信协议
 ```
 
+## 👨‍💻 开发团队
+
+感谢以下开发者对本项目的贡献：
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/vegetablech1cken">
+        <img src="https://github.com/vegetablech1cken.png" width="100px;" alt="vegetablech1cken"/>
+        <br />
+        <sub><b>@vegetablech1cken</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/Zoxel-rin">
+        <img src="https://github.com/Zoxel-rin.png" width="100px;" alt="Zoxel-rin"/>
+        <br />
+        <sub><b>@Zoxel-rin</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/liyunana">
+        <img src="https://github.com/liyunana.png" width="100px;" alt="liyunana"/>
+        <br />
+        <sub><b>@liyunana</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/Kyunana097">
+        <img src="https://github.com/Kyunana097.png" width="100px;" alt="Kyunana097"/>
+        <br />
+        <sub><b>@Kyunana097</b></sub>
+      </a>
+    </td>
+  </tr>
+</table>
+
 ## 👥 团队开发指南
 
 ### 角色分工
@@ -178,7 +215,7 @@ pytest
 # 单元测试
 pytest tests/unit/
 
-# 集成测试  
+# 集成测试
 pytest tests/integration/
 
 # 端到端测试
