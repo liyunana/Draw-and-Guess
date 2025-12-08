@@ -5,7 +5,7 @@
 """
 
 import json
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class Message:
@@ -24,13 +24,10 @@ class Message:
 
     def to_json(self) -> str:
         """将消息转换为 JSON 字符串"""
-        return json.dumps({
-            "type": self.type,
-            "data": self.data
-        })
+        return json.dumps({"type": self.type, "data": self.data})
 
     @classmethod
-    def from_json(cls, json_str: str) -> 'Message':
+    def from_json(cls, json_str: str) -> "Message":
         """从 JSON 字符串创建消息"""
         obj = json.loads(json_str)
         return cls(obj["type"], obj.get("data", {}))
@@ -42,14 +39,17 @@ class Message:
 # TODO: 实现具体的消息类型
 class ConnectMessage(Message):
     """连接消息"""
+
     pass
 
 
 class DrawMessage(Message):
     """绘图消息"""
+
     pass
 
 
 class ChatMessage(Message):
     """聊天消息"""
+
     pass

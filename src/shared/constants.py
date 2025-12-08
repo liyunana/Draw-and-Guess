@@ -34,7 +34,10 @@ LIGHT_GRAY = (200, 200, 200)
 BRUSH_SIZES = [2, 5, 10, 15, 20]
 DEFAULT_BRUSH_SIZE = 5
 BRUSH_COLORS = [
-    BLACK, RED, GREEN, BLUE,
+    BLACK,
+    RED,
+    GREEN,
+    BLUE,
     (255, 255, 0),  # Yellow
     (255, 165, 0),  # Orange
     (128, 0, 128),  # Purple

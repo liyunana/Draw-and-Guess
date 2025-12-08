@@ -4,30 +4,22 @@
 启动游戏客户端，连接到服务器并显示游戏界面。
 """
 
-import sys
 import logging
+import sys
 from pathlib import Path
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-try:
-    import pygame
-except ImportError:
-    print("错误: 未安装 pygame 库")
-    print("请运行: pip install pygame")
-    sys.exit(1)
+import pygame  # noqa: E402
 
-from src.shared.constants import WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE
+from src.shared.constants import WINDOW_HEIGHT, WINDOW_TITLE, WINDOW_WIDTH
 
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('client.log'),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("client.log"), logging.StreamHandler()],
 )
 
 logger = logging.getLogger(__name__)

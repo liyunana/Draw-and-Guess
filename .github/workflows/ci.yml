@@ -25,8 +25,9 @@ jobs:
           pip install -r requirements/dev.txt
       - name: Run linters
         run: |
-          pip install pre-commit
-          pre-commit run --all-files --show-diff-on-failure
+          python -m black --check src/ test/
+          python -m isort --check-only src/ test/
+          python -m flake8 src/ test/ --max-line-length 100 --extend-ignore E203,W503,E402
 
       # 3. pytest 加 -ra 把失败原因打印出来
       - name: Run tests
