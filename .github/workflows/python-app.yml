@@ -23,7 +23,8 @@ jobs:
       cancel-in-progress: true
     strategy:
       matrix:
-        python-version: [3.8, 3.9, 3.10, 3.11]
+        # quote versions so YAML doesn't treat them as numbers (e.g. 3.10 -> 3.1)
+        python-version: ['3.8', '3.9', '3.10', '3.11']
 
     steps:
     - uses: actions/checkout@v4
@@ -33,6 +34,10 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Show Python version and executable
+      run: |
+        python --version
+        python -c "import sys; print('executable:', sys.executable)"
     - name: Cache pip
       uses: actions/cache@v4
       with:
