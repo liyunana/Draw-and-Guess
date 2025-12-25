@@ -60,14 +60,26 @@ class TextInput:
         - Enter 键：提交输入内容（触发 on_submit 回调），然后清空
         - Esc 键：取消激活（放弃输入）
         - Backspace：删除最后一个字符
-        - 其他按键：输入字符（最多 64 字符）
+        - 其他按键：输入字符（最多 64 字符）；支持中文等输入法（TEXTINPUT）
         
         Args:
             event: pygame 事件对象
         """
         if event.type == pygame.MOUSEBUTTONDOWN:
             # 鼠标点击：检查是否点击了输入框区域
+            was_active = self.active
             self.active = self.rect.collidepoint(event.pos)
+            # 根据激活状态开启/关闭文本输入（支持中文输入法）
+            if self.active and not was_active:
+                try:
+                    pygame.key.start_text_input()
+                except Exception:
+                    pass
+            elif (not self.active) and was_active:
+                try:
+                    pygame.key.stop_text_input()
+                except Exception:
+                    pass
         elif event.type == pygame.KEYDOWN and self.active:
             # 只在输入框激活状态下处理键盘输入
             if event.key == pygame.K_RETURN:
@@ -77,7 +89,13 @@ class TextInput:
                 self.text = ""  # 清空输入框
             elif event.key == pygame.K_ESCAPE:
                 # Esc 键：取消激活（放弃输入）
+                was_active = self.active
                 self.active = False
+                if was_active:
+                    try:
+                        pygame.key.stop_text_input()
+                    except Exception:
+                        pass
             elif event.key == pygame.K_BACKSPACE:
                 # Backspace 键：删除最后一个字符
                 self.text = self.text[:-1]
@@ -85,6 +103,12 @@ class TextInput:
                 # 其他按键：输入字符（限制长度为 64）
                 if event.unicode and len(self.text) < 64:
                     self.text += event.unicode  # 只接受可打印字符
+        elif event.type == pygame.TEXTINPUT and self.active:
+            # 处理中文等输入法文本事件
+            if event.text:
+                remaining = 64 - len(self.text)
+                if remaining > 0:
+                    self.text += event.text[:remaining]
 
     def draw(self, screen: pygame.Surface) -> None:
         """每帧渲染输入框到屏幕
