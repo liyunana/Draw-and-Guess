@@ -52,24 +52,35 @@ class ChatPanel:
     def draw(self, screen: pygame.Surface) -> None:
         """每帧渲染聊天面板到屏幕
         
-        - 绘制背景与边框
-        - 显示最近的 max_lines 条消息
+        - 绘制圆角背景与阴影
+        - 绘制边框
+        - 显示最近的 max_lines 条消息（带行内气泡效果）
         
         Args:
             screen: pygame 屏幕 Surface 对象
         """
-        # 绘制背景矩形
-        pygame.draw.rect(screen, self.bg_color, self.rect)
-        # 绘制边框（2像素宽）
-        pygame.draw.rect(screen, self.border_color, self.rect, 2)
+        # 阴影
+        shadow = pygame.Rect(self.rect.x + 3, self.rect.y + 3, self.rect.width, self.rect.height)
+        pygame.draw.rect(screen, (210, 210, 210), shadow, border_radius=8)
+        # 背景圆角
+        pygame.draw.rect(screen, self.bg_color, self.rect, border_radius=8)
+        # 边框
+        pygame.draw.rect(screen, self.border_color, self.rect, 2, border_radius=8)
         
         # 计算显示范围：只显示最后 max_lines 条消息
-        y = self.rect.y + 6  # 纵坐标（距顶部 6 像素）
-        start = max(0, len(self.messages) - self.max_lines)  # 起始索引
+        y = self.rect.y + 8
+        start = max(0, len(self.messages) - self.max_lines)
         
-        # 逐行渲染消息
-        for user, text in self.messages[start:]:
-            line = f"{user}: {text}"  # 格式化为 "用户名: 消息内容"
-            surf = self.font.render(line, True, (40, 40, 40))  # 深灰色文字
-            screen.blit(surf, (self.rect.x + 8, y))  # 绘制在左边距 8 像素处
-            y += surf.get_height() + 4  # 下一行向下移动（行高 + 4 像素间距）
+        bubble_pad_x = 10
+        bubble_pad_y = 4
+        for i, (user, text) in enumerate(self.messages[start:]):
+            line = f"{user}: {text}"
+            surf = self.font.render(line, True, (40, 40, 40))
+            # 气泡背景（交替浅色）
+            bubble_rect = pygame.Rect(self.rect.x + 6, y - 2, self.rect.width - 12, surf.get_height() + bubble_pad_y * 2)
+            bubble_color = (245, 248, 255) if i % 2 == 0 else (252, 252, 252)
+            pygame.draw.rect(screen, bubble_color, bubble_rect, border_radius=6)
+            pygame.draw.rect(screen, (230, 230, 230), bubble_rect, 1, border_radius=6)
+            # 文本
+            screen.blit(surf, (self.rect.x + bubble_pad_x, y))
+            y += surf.get_height() + bubble_pad_y * 2

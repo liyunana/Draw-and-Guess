@@ -62,6 +62,7 @@ APP_STATE: Dict[str, Any] = {
         "player_name": "玩家",
         "difficulty": "普通",  # 简单 | 普通 | 困难
         "volume": 80,
+        "theme": "light",  # light | dark
     },
 }
 
@@ -394,6 +395,30 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
     
     # 音量滑块范围
     volume_slider_rect = pygame.Rect(pad + 150, pad + 250, 350, 25)
+
+    # 主题切换按钮
+    light_btn = Button(
+        x=pad + 150,
+        y=pad + 320,
+        width=120,
+        height=36,
+        text="浅色主题",
+        bg_color=(180, 200, 220),
+        fg_color=(255, 255, 255),
+        font_size=18,
+        font_name="Microsoft YaHei",
+    )
+    dark_btn = Button(
+        x=pad + 280,
+        y=pad + 320,
+        width=120,
+        height=36,
+        text="深色主题",
+        bg_color=(80, 90, 110),
+        fg_color=(255, 255, 255),
+        font_size=18,
+        font_name="Microsoft YaHei",
+    )
     
     # 快捷键说明
     shortcuts_info = {
@@ -412,6 +437,8 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
         "normal_btn": normal_btn,
         "hard_btn": hard_btn,
         "volume_slider_rect": volume_slider_rect,
+        "light_btn": light_btn,
+        "dark_btn": dark_btn,
         "shortcuts_info": shortcuts_info,
     }
 
@@ -452,7 +479,7 @@ def update_and_draw_hud(screen: pygame.Surface, ui: Dict[str, Any]) -> None:
 
     # 模式与画笔
     canvas: Canvas = ui["canvas"]
-    mode_txt = font.render(f"模式: {'橡皮' if canvas.mode=='erase' else '画笔'}", True, (60, 60, 60))
+    mode_txt = font.render("模式: 橡皮" if canvas.mode == "erase" else "模式: 画笔", True, (60, 60, 60))
     screen.blit(mode_txt, (rect.right - 360, rect.y + (top_h - mode_txt.get_height()) // 2))
 
     # 颜色与大小展示
@@ -608,6 +635,11 @@ def main() -> None:
                                 APP_STATE["settings"]["difficulty"] = "普通"
                             elif ui["hard_btn"].is_clicked(mouse_pos, event.button):
                                 APP_STATE["settings"]["difficulty"] = "困难"
+                            # 主题切换
+                            elif ui["light_btn"].is_clicked(mouse_pos, event.button):
+                                APP_STATE["settings"]["theme"] = "light"
+                            elif ui["dark_btn"].is_clicked(mouse_pos, event.button):
+                                APP_STATE["settings"]["theme"] = "dark"
                         # 音量滑块拖动
                         elif event.type == pygame.MOUSEMOTION and pygame.mouse.get_pressed()[0]:
                             if ui["volume_slider_rect"].collidepoint(event.pos):
@@ -681,13 +713,28 @@ def main() -> None:
                     ui = build_settings_ui(screen.get_size())
                     APP_STATE["ui"] = ui
                 
-                # 绘制设置界面背景
-                screen.fill((240, 242, 250))  # 浅蓝色背景
+                # 根据主题绘制设置界面背景
+                theme = APP_STATE["settings"].get("theme", "light")
+                if theme == "dark":
+                    bg_color = (28, 30, 35)
+                    panel_bg = (40, 44, 52)
+                    panel_border = (80, 90, 110)
+                    title_color = (200, 220, 255)
+                    label_color = (210, 210, 210)
+                    value_color = (220, 220, 220)
+                else:
+                    bg_color = (240, 242, 250)
+                    panel_bg = (255, 255, 255)
+                    panel_border = (180, 200, 220)
+                    title_color = (50, 80, 150)
+                    label_color = (60, 60, 60)
+                    value_color = (80, 80, 80)
+                screen.fill(bg_color)
                 
                 # 绘制设置面板（白色背景，有边框）
                 panel_rect = pygame.Rect(20, 20, screen.get_width() - 40, screen.get_height() - 40)
-                pygame.draw.rect(screen, (255, 255, 255), panel_rect)
-                pygame.draw.rect(screen, (180, 200, 220), panel_rect, 3)  # 蓝色边框
+                pygame.draw.rect(screen, panel_bg, panel_rect)
+                pygame.draw.rect(screen, panel_border, panel_rect, 3)
                 
                 try:
                     font_title = pygame.font.SysFont("Microsoft YaHei", 40)
@@ -699,19 +746,19 @@ def main() -> None:
                     font_value = pygame.font.SysFont(None, 20)
                 
                 # 标题
-                title = font_title.render("游戏设置", True, (50, 80, 150))
+                title = font_title.render("游戏设置", True, title_color)
                 screen.blit(title, (50, 30))
                 
                 # 分隔线
                 pygame.draw.line(screen, (200, 200, 200), (50, 90), (screen.get_width() - 50, 90), 2)
                 
                 # 玩家名字标签与输入框
-                label = font_label.render("玩家名字:", True, (60, 60, 60))
+                label = font_label.render("玩家名字:", True, label_color)
                 screen.blit(label, (50, 110))
                 ui["player_name_input"].draw(screen)
                 
                 # 难度标签与按钮
-                label = font_label.render("游戏难度:", True, (60, 60, 60))
+                label = font_label.render("游戏难度:", True, label_color)
                 screen.blit(label, (50, 180))
                 ui["easy_btn"].draw(screen)
                 ui["normal_btn"].draw(screen)
@@ -725,7 +772,7 @@ def main() -> None:
                 screen.blit(diff_label, (450, 195))
                 
                 # 音量标签与滑块
-                label = font_label.render("音量:", True, (60, 60, 60))
+                label = font_label.render("音量:", True, label_color)
                 screen.blit(label, (50, 270))
                 
                 # 音量滑块背景
@@ -744,18 +791,24 @@ def main() -> None:
                 pygame.draw.circle(screen, (100, 150, 255), (int(slider_x), int(slider_rect.centery)), 8)
                 
                 # 音量百分比显示
-                vol_label = font_value.render(f"音量: {vol}%", True, (80, 80, 80))
+                vol_label = font_value.render(f"音量: {vol}%", True, value_color)
                 screen.blit(vol_label, (450, 280))
+
+                # 主题切换标签与按钮
+                theme_label = font_label.render("主题:", True, label_color)
+                screen.blit(theme_label, (50, 325))
+                ui["light_btn"].draw(screen)
+                ui["dark_btn"].draw(screen)
                 
                 # 快捷键说明区域
                 pygame.draw.line(screen, (200, 200, 200), (50, 320), (screen.get_width() - 50, 320), 2)
                 
                 shortcuts_title = font_label.render("快捷键说明", True, (50, 80, 150))
-                screen.blit(shortcuts_title, (50, 330))
+                screen.blit(shortcuts_title, (50, 380))
                 
                 shortcuts_info = ui.get("shortcuts_info", {})
                 font_small = pygame.font.SysFont("Microsoft YaHei", 16)
-                shortcut_y = 370
+                shortcut_y = 420
                 col1_x = 50
                 col2_x = screen.get_width() // 2
                 col = 0
