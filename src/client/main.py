@@ -388,6 +388,16 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
     # 音量滑块范围
     volume_slider_rect = pygame.Rect(pad + 150, pad + 250, 350, 25)
     
+    # 快捷键说明
+    shortcuts_info = {
+        "1-9": "快速选择颜色",
+        "[": "减小笔刷大小",
+        "]": "增大笔刷大小",
+        "E": "切换橡皮/画笔",
+        "K": "清空画布",
+        "N": "下一回合",
+    }
+    
     return {
         "back_btn": back_btn,
         "player_name_input": player_name_input,
@@ -395,6 +405,7 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
         "normal_btn": normal_btn,
         "hard_btn": hard_btn,
         "volume_slider_rect": volume_slider_rect,
+        "shortcuts_info": shortcuts_info,
     }
 
 
@@ -724,6 +735,27 @@ def main() -> None:
                 # 音量百分比显示
                 vol_label = font_value.render(f"音量: {vol}%", True, (80, 80, 80))
                 screen.blit(vol_label, (450, 280))
+                
+                # 快捷键说明区域
+                pygame.draw.line(screen, (200, 200, 200), (50, 320), (screen.get_width() - 50, 320), 2)
+                
+                shortcuts_title = font_label.render("快捷键说明", True, (50, 80, 150))
+                screen.blit(shortcuts_title, (50, 330))
+                
+                shortcuts_info = ui.get("shortcuts_info", {})
+                font_small = pygame.font.SysFont("Microsoft YaHei", 16)
+                shortcut_y = 370
+                col1_x = 50
+                col2_x = screen.get_width() // 2
+                col = 0
+                
+                for key, desc in shortcuts_info.items():
+                    text = f"{key}: {desc}"
+                    shortcut_text = font_small.render(text, True, (80, 80, 80))
+                    x = col1_x if col % 2 == 0 else col2_x
+                    y = shortcut_y + (col // 2) * 25
+                    screen.blit(shortcut_text, (x, y))
+                    col += 1
                 
                 # 返回按钮
                 ui["back_btn"].draw(screen)

@@ -42,11 +42,14 @@ class Toolbar:
             # 顶部颜色区域
             pad = 8
             swatch_size = 28
+            title_h = 24  # 标题高度
+            
             cols_per_row = max(1, (self.rect.width - pad * 2) // (swatch_size + 6))
             rows = (len(self.colors) + cols_per_row - 1) // cols_per_row
-            color_area_h = rows * (swatch_size + 6) + pad
+            color_area_h = pad + title_h + 4 + rows * (swatch_size + 6) + pad
+            
             # 判断颜色点击
-            cx, cy = pad, pad
+            cx, cy = pad, pad + title_h + 4
             idx = 0
             for r in range(rows):
                 for c in range(cols_per_row):
@@ -62,8 +65,9 @@ class Toolbar:
                 cx = pad
                 cy += swatch_size + 6
 
-            # 画笔大小区域
-            brush_y = color_area_h + pad
+            # 画笔大小区域（需要计算标签高度）
+            brush_label_h = 24
+            brush_y = color_area_h + brush_label_h + 6
             for i, size in enumerate(self.sizes):
                 bx = pad + i * (swatch_size + 10)
                 brect = pygame.Rect(bx, brush_y, swatch_size, swatch_size)
@@ -73,7 +77,7 @@ class Toolbar:
                     return
 
             # 底部按钮区域：清空与橡皮
-            btn_h = 32
+            btn_h = 36
             clear_rect = pygame.Rect(pad, self.rect.height - btn_h - pad, (self.rect.width - pad * 3) // 2, btn_h)
             erase_rect = pygame.Rect(clear_rect.right + pad, clear_rect.y, clear_rect.width, btn_h)
             if clear_rect.collidepoint(lx, ly):
