@@ -33,6 +33,7 @@ from src.client.ui.chat import ChatPanel
 ROOT = Path(__file__).parent.parent.parent
 SETTINGS_PATH = ROOT / "settings.json"
 LOGO_PATH = ROOT / "assets" / "images" / "logo.png"
+CONFIRM_SOUND_PATH = ROOT / "data" / "confirm.mp3"
 
 # Runtime maps used by create_buttons_from_config / event dispatch
 BUTTON_ORIG_BG: Dict[int, tuple] = {}
@@ -62,6 +63,7 @@ APP_STATE: Dict[str, Any] = {
         "player_id": None,
     },
     "net": None,
+    "notifications": [],  # List[Dict[str, Any]] with text, color, end_time
     # resize 防抖：在窗口调整结束后再重建 UI，减少频繁重建导致的卡顿
     "pending_resize_until": 0,
     "pending_resize_size": None,
@@ -90,6 +92,15 @@ def save_settings() -> None:
             json.dump(APP_STATE["settings"], f, ensure_ascii=False, indent=2)
     except Exception as exc:
         logger.warning("保存设置失败: %s", exc)
+
+
+def add_notification(text: str, color=(50, 200, 50), duration=2.0) -> None:
+    """添加一个临时的屏幕通知。"""
+    APP_STATE["notifications"].append({
+        "text": text,
+        "color": color,
+        "end_time": pygame.time.get_ticks() + duration * 1000
+    })
 
 
 def ensure_player_identity() -> str:
@@ -191,6 +202,7 @@ def create_buttons_from_config(
     screen_size: tuple,
     logo_anchor: Optional[tuple] = None,
     screen_filter: Optional[str] = None,
+    click_sound: Optional[pygame.mixer.Sound] = None,
 ) -> List[Button]:
     """Create and return Button instances from configuration.
 
@@ -240,6 +252,7 @@ def create_buttons_from_config(
             hover_bg_color=hover,
             font_size=cfg.get("font_size", 24),
             font_name=cfg.get("font_name", None),
+            click_sound=click_sound,
             on_click=callback,
         )
         # attach config id for callers to find specific buttons
@@ -326,7 +339,14 @@ def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
     # 颜色与画笔大小来自常量
     from src.shared.constants import BRUSH_COLORS, BRUSH_SIZES
 
-    toolbar = Toolbar(toolbar_rect, colors=BRUSH_COLORS, sizes=BRUSH_SIZES, font_name="Microsoft YaHei")
+    # 获取预加载的音效（如果存在）
+    confirm_sound = None
+    try:
+        confirm_sound = pygame.mixer.Sound(str(CONFIRM_SOUND_PATH)) if CONFIRM_SOUND_PATH.exists() else None
+    except Exception:
+        pass
+
+    toolbar = Toolbar(toolbar_rect, colors=BRUSH_COLORS, sizes=BRUSH_SIZES, font_name="Microsoft YaHei", click_sound=confirm_sound)
     chat = ChatPanel(chat_rect, font_size=18, font_name="Microsoft YaHei")
     text_input = TextInput(input_rect, font_name="Microsoft YaHei", font_size=22, placeholder="输入猜词或聊天... Enter发送 / Shift+Enter换行")
     # 发送按钮将在配置中创建并附加到 UI（位置依赖输入区域）
@@ -390,7 +410,7 @@ def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
     }
 
 
-def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
+def build_settings_ui(screen_size: tuple, confirm_sound: Optional[pygame.mixer.Sound] = None) -> Dict[str, Any]:
     """构建设置界面组件。"""
     sw, sh = screen_size
     # Responsive layout: use percentages so window/fullscreen changes keep UI readable
@@ -423,7 +443,27 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
     def _update_player_name(name: str) -> None:
         APP_STATE["settings"]["player_name"] = name.strip() or APP_STATE["settings"].get("player_name", "玩家")
         save_settings()
+        add_notification(f"名字已修改为: {APP_STATE['settings']['player_name']}")
     player_name_input.on_submit = _update_player_name
+
+    # 确认名字按钮 (绿色打钩)
+    confirm_btn_x = control_x + input_w + 10
+    confirm_name_btn = Button(
+        x=confirm_btn_x,
+        y=row1_y,
+        width=input_h, # Square
+        height=input_h,
+        text="√",
+        bg_color=(50, 200, 50),
+        fg_color=(255, 255, 255),
+        hover_bg_color=(70, 220, 70),
+        font_size=24,
+        font_name="Microsoft YaHei",
+        click_sound=confirm_sound,
+    )
+    def _on_confirm_name():
+        _update_player_name(player_name_input.text)
+    confirm_name_btn.on_click = _on_confirm_name
 
     # 难度选择按钮
     # 难度设置已移除（改为使用默认/固定难度）
@@ -437,6 +477,7 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
 
     return {
         "player_name_input": player_name_input,
+        "confirm_name_btn": confirm_name_btn,
         # difficulty buttons removed
         "volume_slider_rect": volume_slider_rect,
         # theme/fullscreen buttons attached from config
@@ -532,6 +573,11 @@ def main() -> None:
 
     try:
         pygame.init()
+        # 显式初始化 mixer 以确保音效正常播放
+        try:
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        except Exception as e:
+            logger.warning(f"初始化音频设备失败: {e}")
         
         # 初始化SDL文本输入支持（用于中文输入法）
         try:
@@ -546,6 +592,14 @@ def main() -> None:
         # 加载持久化设置并确保玩家标识
         load_settings()
         ensure_player_identity()
+
+        # 预加载音效
+        confirm_sound = None
+        if CONFIRM_SOUND_PATH.exists():
+            try:
+                confirm_sound = pygame.mixer.Sound(str(CONFIRM_SOUND_PATH))
+            except Exception as e:
+                logger.warning(f"加载确认音效失败: {e}")
 
         # Create a window or fullscreen depending on saved settings
         flags = pygame.RESIZABLE
@@ -567,7 +621,7 @@ def main() -> None:
             APP_STATE["ui"] = None
             nonlocal logo_orig, logo_base_size, logo_anchor, buttons
             logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, screen.get_size())
-            buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu")
+            buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu", click_sound=confirm_sound)
 
         def on_light_theme():
             APP_STATE["settings"]["theme"] = "light"
@@ -614,7 +668,7 @@ def main() -> None:
         clock = pygame.time.Clock()
         running = True
 
-        buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu")
+        buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu", click_sound=confirm_sound)
 
         while running:
             for event in pygame.event.get():
@@ -638,7 +692,7 @@ def main() -> None:
                         if ui is None:
                             ui = build_play_ui(screen.get_size())
                             # create play-specific buttons from config and attach to ui
-                            play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play")
+                            play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play", click_sound=confirm_sound)
                             for pb in play_buttons:
                                 cid = getattr(pb, "_cfg_id", None)
                                 if cid == "play_back":
@@ -718,9 +772,9 @@ def main() -> None:
                     elif APP_STATE["screen"] == "settings":
                         ui = APP_STATE["ui"]
                         if ui is None:
-                            ui = build_settings_ui(screen.get_size())
+                            ui = build_settings_ui(screen.get_size(), confirm_sound=confirm_sound)
                             # attach settings buttons from config
-                            settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings")
+                            settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings", click_sound=confirm_sound)
                             for sb in settings_buttons:
                                 cid = getattr(sb, "_cfg_id", None)
                                 if cid == "settings_back":
@@ -737,7 +791,7 @@ def main() -> None:
                         ui["player_name_input"].handle_event(event)
 
                         # 处理按钮事件
-                        for btn_key in ["back_btn", "light_btn", "dark_btn", "fullscreen_btn"]:
+                        for btn_key in ["back_btn", "light_btn", "dark_btn", "fullscreen_btn", "confirm_name_btn"]:
                             if ui.get(btn_key):
                                 ui[btn_key].handle_event(event)
 
@@ -766,7 +820,7 @@ def main() -> None:
                     if APP_STATE["screen"] == "menu":
                         logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, pending_size)
                         buttons = create_buttons_from_config(
-                            BUTTONS_CONFIG, CALLBACKS, pending_size, logo_anchor, screen_filter="menu"
+                            BUTTONS_CONFIG, CALLBACKS, pending_size, logo_anchor, screen_filter="menu", click_sound=confirm_sound
                         )
                     elif APP_STATE["screen"] in ("play", "settings"):
                         # 在渲染阶段重建 UI（play/settings 会在后续逻辑中重建）
@@ -825,7 +879,7 @@ def main() -> None:
                 if ui is None:
                     ui = build_play_ui(screen.get_size())
                     # create play-specific buttons from config and attach to ui
-                    play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play")
+                    play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play", click_sound=confirm_sound)
                     for pb in play_buttons:
                         cid = getattr(pb, "_cfg_id", None)
                         if cid == "play_back":
@@ -852,7 +906,7 @@ def main() -> None:
                 if ui is None:
                     ui = build_settings_ui(screen.get_size())
                     # attach settings buttons from config
-                    settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings")
+                    settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings", click_sound=confirm_sound)
                     for sb in settings_buttons:
                         cid = getattr(sb, "_cfg_id", None)
                         if cid == "settings_back":
@@ -922,6 +976,8 @@ def main() -> None:
                 label_y = pn_rect.y + (pn_rect.height - label.get_height()) // 2
                 screen.blit(label, (label_x, label_y))
                 ui["player_name_input"].draw(screen)
+                if ui.get("confirm_name_btn"):
+                    ui["confirm_name_btn"].draw(screen)
 
                 # 难度设置已从界面移除
 
@@ -980,6 +1036,25 @@ def main() -> None:
                 # 返回按钮
                 if ui.get("back_btn"):
                     ui["back_btn"].draw(screen)
+
+            # 绘制通知
+            now_ms = pygame.time.get_ticks()
+            APP_STATE["notifications"] = [n for n in APP_STATE["notifications"] if n["end_time"] > now_ms]
+            for i, n in enumerate(APP_STATE["notifications"]):
+                try:
+                    n_font = pygame.font.SysFont("Microsoft YaHei", 24, bold=True)
+                except Exception:
+                    n_font = pygame.font.SysFont(None, 24)
+                
+                txt_surf = n_font.render(n["text"], True, n["color"])
+                # 居中显示在屏幕顶部
+                tx = (screen.get_width() - txt_surf.get_width()) // 2
+                ty = 50 + i * 50
+                # 绘制背景框
+                bg_rect = pygame.Rect(tx - 15, ty - 10, txt_surf.get_width() + 30, txt_surf.get_height() + 20)
+                pygame.draw.rect(screen, (255, 255, 255), bg_rect, border_radius=8)
+                pygame.draw.rect(screen, n["color"], bg_rect, 2, border_radius=8)
+                screen.blit(txt_surf, (tx, ty))
 
             pygame.display.flip()
             clock.tick(60)

@@ -19,10 +19,12 @@ class Toolbar:
         colors: List[Tuple[int, int, int]],
         sizes: List[int],
         font_name: Optional[str] = None,
+        click_sound: Optional[pygame.mixer.Sound] = None,
     ) -> None:
         self.rect = rect
         self.colors = colors
         self.sizes = sizes
+        self.click_sound = click_sound
         self.on_color: Optional[Callable[[Tuple[int, int, int]], None]] = None
         self.on_brush: Optional[Callable[[int], None]] = None
         self.on_mode: Optional[Callable[[str], None]] = None
@@ -62,6 +64,14 @@ class Toolbar:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if not self.rect.collidepoint(event.pos):
                 return
+            
+            # 播放音效
+            if self.click_sound:
+                try:
+                    self.click_sound.play()
+                except Exception:
+                    pass
+
             lx, ly = event.pos[0] - self.rect.x, event.pos[1] - self.rect.y
             # 计算点击区域：顶部颜色块、居中画笔大小、底部按钮
             # 顶部颜色区域
