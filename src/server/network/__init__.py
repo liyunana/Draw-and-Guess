@@ -15,7 +15,6 @@ from __future__ import annotations
 import socket
 import threading
 import json
-import time
 import traceback
 from typing import Dict, Optional, Tuple
 
@@ -48,7 +47,6 @@ class ClientSession:
 		self.player_name: Optional[str] = None
 		self.room_id: Optional[str] = None
 		self._recv_buffer = bytearray()
-		self._last_pong = time.time()
 
 	def fileno(self) -> int:
 		return self.conn.fileno()
@@ -68,18 +66,14 @@ class NetworkServer:
 		self.port = port
 		self._sock: Optional[socket.socket] = None
 		self._accept_thread: Optional[threading.Thread] = None
-		self._timer_thread: Optional[threading.Thread] = None
 		self._running = threading.Event()
 		self.sessions: Dict[int, ClientSession] = {}
 		# // 简化：单房间实现，可扩展为多房间字典
 		self.room = GameRoom(room_id="default")
-		# // 心跳与超时参数
-		self._ping_interval = 10.0
-		self._timeout_interval = 1.0
 
 	# 服务器生命周期
 	def start(self) -> None:
-		"""启动服务器并进入 Accept 与定时线程"""
+		"""启动服务器并进入 Accept 循环"""
 		self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		# // 允许快速重启服务
 		self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -88,9 +82,6 @@ class NetworkServer:
 		self._running.set()
 		self._accept_thread = threading.Thread(target=self._accept_loop, name="accept-loop", daemon=True)
 		self._accept_thread.start()
-		# // 定时线程：心跳/超时检查
-		self._timer_thread = threading.Thread(target=self._timer_loop, name="timer-loop", daemon=True)
-		self._timer_thread.start()
 
 	def stop(self) -> None:
 		"""停止服务器并关闭所有会话"""
@@ -149,25 +140,6 @@ class NetworkServer:
 		finally:
 			self._on_disconnect(sess)
 
-	def _timer_loop(self) -> None:
-		"""定时任务：心跳与游戏回合超时检查"""
-		last_ping = 0.0
-		while self._running.is_set():
-			now = time.time()
-			# // 心跳：周期性向客户端发送 ping，便于保活（客户端可回 pong）
-			if now - last_ping >= self._ping_interval:
-				self.broadcast(Message("ping", {"ts": now}))
-				last_ping = now
-			# // 游戏超时：检查并广播状态变化
-			changed = False
-			try:
-				changed = self.room.update_timeouts()
-			except Exception:
-				traceback.print_exc()
-			if changed:
-				self.broadcast(Message("room_state", self.room.get_public_state()))
-			time.sleep(self._timeout_interval)
-
 	# 消息处理
 	def _handle_raw_message(self, sess: ClientSession, raw: bytes) -> None:
 		"""原始字节消息 -> JSON -> Message 并路由"""
@@ -188,9 +160,6 @@ class NetworkServer:
 			sess.player_id = str(data.get("player_id") or sess.addr[0])
 			sess.player_name = str(data.get("name") or f"Player-{sess.addr[1]}")
 			self._send(sess, Message("ack", {"ok": True, "event": MSG_CONNECT}))
-		elif t == "pong":
-			# // 客户端心跳回复
-			sess._last_pong = time.time()
 		elif t == MSG_JOIN_ROOM:
 			# // 加入房间，并添加玩家到 GameRoom
 			sess.room_id = str(data.get("room_id") or "default")
@@ -232,7 +201,11 @@ class NetworkServer:
 			self.broadcast(Message("draw_sync", payload), exclude=sess)
 		elif t == MSG_CHAT:
 			# // 聊天广播
-			payload = {"by": sess.player_id, "text": str(data.get("text") or "")}
+			payload = {
+				"by": sess.player_id,
+				"by_name": sess.player_name,
+				"text": str(data.get("text") or ""),
+			}
 			self.broadcast(Message("chat", payload))
 		elif t == MSG_DISCONNECT:
 			self._on_disconnect(sess)

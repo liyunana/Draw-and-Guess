@@ -12,6 +12,6 @@
 - 与服务器通信基于行分隔 JSON（Message.to_json() + "\n"）
 """
 
-from . import game, ui
+from . import game, ui, network
 
-__all__ = ["game", "ui"]
+__all__ = ["game", "ui", "network"]
