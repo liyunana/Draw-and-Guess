@@ -1,7 +1,8 @@
 {
-  "player_name": "玩家",
+  "player_name": "PLAYER=3",
   "difficulty": "普通",
-  "volume": 67,
-  "theme": "dark",
-  "fullscreen": false
+  "volume": 81,
+  "theme": "light",
+  "fullscreen": false,
+  "player_id": "ab1ba31d-05dc-4209-ad81-24c825190350"
 }

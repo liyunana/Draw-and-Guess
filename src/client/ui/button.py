@@ -102,17 +102,18 @@ class Button:
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.rect.collidepoint(event.pos):
                 self.pressed = True
+                # 播放音效（如果有）
+                try:
+                    if self.click_sound:
+                        self.click_sound.play()
+                except Exception:
+                    pass
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             if self.pressed:
                 was_hovered = self.rect.collidepoint(event.pos)
                 self.pressed = False
                 if was_hovered:
-                    # 播放音效（如果有）并调用回调
-                    try:
-                        if self.click_sound:
-                            self.click_sound.play()
-                    except Exception:
-                        pass
+                    # 调用回调
                     if self.on_click:
                         try:
                             self.on_click()

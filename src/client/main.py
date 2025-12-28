@@ -8,6 +8,7 @@ import logging
 import sys
 from pathlib import Path
 import math
+import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 # 添加项目根目录到路径（保留以便直接运行脚本时能找到包）
@@ -21,6 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from src.shared.constants import WINDOW_HEIGHT, WINDOW_TITLE, WINDOW_WIDTH
+from src.client.network import NetworkClient
 from src.client.ui.button import Button
 from src.client.ui.buttons_config import BUTTONS_CONFIG
 from src.client.ui.canvas import Canvas
@@ -31,6 +33,7 @@ from src.client.ui.chat import ChatPanel
 ROOT = Path(__file__).parent.parent.parent
 SETTINGS_PATH = ROOT / "settings.json"
 LOGO_PATH = ROOT / "assets" / "images" / "logo.png"
+CONFIRM_SOUND_PATH = ROOT / "data" / "confirm.mp3"
 
 # Runtime maps used by create_buttons_from_config / event dispatch
 BUTTON_ORIG_BG: Dict[int, tuple] = {}
@@ -57,7 +60,10 @@ APP_STATE: Dict[str, Any] = {
         "volume": 80,
         "theme": "light",  # light | dark
         "fullscreen": False,
+        "player_id": None,
     },
+    "net": None,
+    "notifications": [],  # List[Dict[str, Any]] with text, color, end_time
     # resize 防抖：在窗口调整结束后再重建 UI，减少频繁重建导致的卡顿
     "pending_resize_until": 0,
     "pending_resize_size": None,
@@ -71,7 +77,7 @@ def load_settings() -> None:
             with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                for k in ("player_name", "difficulty", "volume", "theme", "fullscreen"):
+                for k in ("player_name", "difficulty", "volume", "theme", "fullscreen", "player_id"):
                     if k in data:
                         APP_STATE["settings"][k] = data[k]
     except Exception as exc:
@@ -87,6 +93,32 @@ def save_settings() -> None:
     except Exception as exc:
         logger.warning("保存设置失败: %s", exc)
 
+
+def add_notification(text: str, color=(50, 200, 50), duration=2.0) -> None:
+    """添加一个临时的屏幕通知。"""
+    APP_STATE["notifications"].append({
+        "text": text,
+        "color": color,
+        "end_time": pygame.time.get_ticks() + duration * 1000
+    })
+
+
+def ensure_player_identity() -> str:
+    """确保存在稳定的 player_id（用于房间聊天标识）。"""
+    pid = APP_STATE["settings"].get("player_id")
+    if not pid:
+        pid = str(uuid.uuid4())
+        APP_STATE["settings"]["player_id"] = pid
+        save_settings()
+    return str(pid)
+
+
+def get_network_client() -> NetworkClient:
+    net = APP_STATE.get("net")
+    if net is None:
+        net = NetworkClient()
+        APP_STATE["net"] = net
+    return net
 
 
 def load_logo(path: Path, screen_size: tuple):
@@ -170,6 +202,7 @@ def create_buttons_from_config(
     screen_size: tuple,
     logo_anchor: Optional[tuple] = None,
     screen_filter: Optional[str] = None,
+    click_sound: Optional[pygame.mixer.Sound] = None,
 ) -> List[Button]:
     """Create and return Button instances from configuration.
 
@@ -219,6 +252,7 @@ def create_buttons_from_config(
             hover_bg_color=hover,
             font_size=cfg.get("font_size", 24),
             font_name=cfg.get("font_name", None),
+            click_sound=click_sound,
             on_click=callback,
         )
         # attach config id for callers to find specific buttons
@@ -262,6 +296,12 @@ def on_settings() -> None:
 
 def on_quit() -> None:
     logger.info("Quit pressed")
+    try:
+        net = APP_STATE.get("net")
+        if net:
+            net.close()
+    except Exception:
+        pass
     pygame.quit()
     sys.exit(0)
 
@@ -299,7 +339,14 @@ def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
     # 颜色与画笔大小来自常量
     from src.shared.constants import BRUSH_COLORS, BRUSH_SIZES
 
-    toolbar = Toolbar(toolbar_rect, colors=BRUSH_COLORS, sizes=BRUSH_SIZES, font_name="Microsoft YaHei")
+    # 获取预加载的音效（如果存在）
+    confirm_sound = None
+    try:
+        confirm_sound = pygame.mixer.Sound(str(CONFIRM_SOUND_PATH)) if CONFIRM_SOUND_PATH.exists() else None
+    except Exception:
+        pass
+
+    toolbar = Toolbar(toolbar_rect, colors=BRUSH_COLORS, sizes=BRUSH_SIZES, font_name="Microsoft YaHei", click_sound=confirm_sound)
     chat = ChatPanel(chat_rect, font_size=18, font_name="Microsoft YaHei")
     text_input = TextInput(input_rect, font_name="Microsoft YaHei", font_size=22, placeholder="输入猜词或聊天... Enter发送 / Shift+Enter换行")
     # 发送按钮将在配置中创建并附加到 UI（位置依赖输入区域）
@@ -319,6 +366,12 @@ def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
 
     def _on_submit(msg: str) -> None:
         safe = msg.replace("\n", " ")
+        try:
+            net = APP_STATE.get("net")
+            if net and net.connected:
+                net.send_chat(safe)
+        except Exception:
+            pass
         chat.add_message("你", safe)
 
     text_input.on_submit = _on_submit
@@ -357,7 +410,7 @@ def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
     }
 
 
-def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
+def build_settings_ui(screen_size: tuple, confirm_sound: Optional[pygame.mixer.Sound] = None) -> Dict[str, Any]:
     """构建设置界面组件。"""
     sw, sh = screen_size
     # Responsive layout: use percentages so window/fullscreen changes keep UI readable
@@ -390,7 +443,27 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
     def _update_player_name(name: str) -> None:
         APP_STATE["settings"]["player_name"] = name.strip() or APP_STATE["settings"].get("player_name", "玩家")
         save_settings()
+        add_notification(f"名字已修改为: {APP_STATE['settings']['player_name']}")
     player_name_input.on_submit = _update_player_name
+
+    # 确认名字按钮 (绿色打钩)
+    confirm_btn_x = control_x + input_w + 10
+    confirm_name_btn = Button(
+        x=confirm_btn_x,
+        y=row1_y,
+        width=input_h, # Square
+        height=input_h,
+        text="√",
+        bg_color=(50, 200, 50),
+        fg_color=(255, 255, 255),
+        hover_bg_color=(70, 220, 70),
+        font_size=24,
+        font_name="Microsoft YaHei",
+        click_sound=confirm_sound,
+    )
+    def _on_confirm_name():
+        _update_player_name(player_name_input.text)
+    confirm_name_btn.on_click = _on_confirm_name
 
     # 难度选择按钮
     # 难度设置已移除（改为使用默认/固定难度）
@@ -404,11 +477,45 @@ def build_settings_ui(screen_size: tuple) -> Dict[str, Any]:
 
     return {
         "player_name_input": player_name_input,
+        "confirm_name_btn": confirm_name_btn,
         # difficulty buttons removed
         "volume_slider_rect": volume_slider_rect,
         # theme/fullscreen buttons attached from config
         # shortcuts removed from UI dict
     }
+
+
+def process_network_messages(ui: Optional[Dict[str, Any]]) -> None:
+    """从网络事件队列消费消息并更新 UI。"""
+    if not ui:
+        return
+    net = APP_STATE.get("net")
+    if net is None:
+        return
+
+    self_id = APP_STATE.get("settings", {}).get("player_id")
+
+    for msg in net.drain_events():
+        data = msg.data or {}
+        if msg.type == "chat":
+            by_id = data.get("by") or data.get("by_id")
+            name = data.get("by_name") or by_id or "玩家"
+            if by_id and self_id and str(by_id) == str(self_id):
+                # 已在本地显示，跳过重复
+                continue
+            label = "你" if by_id and self_id and str(by_id) == str(self_id) else name
+            text = str(data.get("text") or "").replace("\n", " ")
+            try:
+                ui["chat"].add_message(label, text)
+            except Exception:
+                pass
+        elif msg.type == "room_state":
+            hud = ui.get("hud")
+            if hud:
+                try:
+                    hud["round_time_left"] = data.get("time_left", hud.get("round_time_left", 60))
+                except Exception:
+                    pass
 
 
 def update_and_draw_hud(screen: pygame.Surface, ui: Dict[str, Any]) -> None:
@@ -466,6 +573,11 @@ def main() -> None:
 
     try:
         pygame.init()
+        # 显式初始化 mixer 以确保音效正常播放
+        try:
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        except Exception as e:
+            logger.warning(f"初始化音频设备失败: {e}")
         
         # 初始化SDL文本输入支持（用于中文输入法）
         try:
@@ -477,14 +589,22 @@ def main() -> None:
         except Exception as e:
             logger.warning(f"初始化输入法支持失败: {e}")
         
-        # 加载持久化设置
+        # 加载持久化设置并确保玩家标识
         load_settings()
+        ensure_player_identity()
+
+        # 预加载音效
+        confirm_sound = None
+        if CONFIRM_SOUND_PATH.exists():
+            try:
+                confirm_sound = pygame.mixer.Sound(str(CONFIRM_SOUND_PATH))
+            except Exception as e:
+                logger.warning(f"加载确认音效失败: {e}")
 
         # Create a window or fullscreen depending on saved settings
         flags = pygame.RESIZABLE
         if APP_STATE["settings"].get("fullscreen"):
             flags = pygame.FULLSCREEN
-            # For fullscreen, passing (0,0) lets SDL choose current display mode
             screen = pygame.display.set_mode((0, 0), flags)
         else:
             screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), flags)
@@ -501,7 +621,7 @@ def main() -> None:
             APP_STATE["ui"] = None
             nonlocal logo_orig, logo_base_size, logo_anchor, buttons
             logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, screen.get_size())
-            buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu")
+            buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu", click_sound=confirm_sound)
 
         def on_light_theme():
             APP_STATE["settings"]["theme"] = "light"
@@ -548,7 +668,7 @@ def main() -> None:
         clock = pygame.time.Clock()
         running = True
 
-        buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu")
+        buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu", click_sound=confirm_sound)
 
         while running:
             for event in pygame.event.get():
@@ -572,7 +692,7 @@ def main() -> None:
                         if ui is None:
                             ui = build_play_ui(screen.get_size())
                             # create play-specific buttons from config and attach to ui
-                            play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play")
+                            play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play", click_sound=confirm_sound)
                             for pb in play_buttons:
                                 cid = getattr(pb, "_cfg_id", None)
                                 if cid == "play_back":
@@ -580,6 +700,18 @@ def main() -> None:
                                 elif cid == "play_send":
                                     ui["send_btn"] = pb
                             APP_STATE["ui"] = ui
+                            # 确保网络连接并加入房间
+                            player_id = ensure_player_identity()
+                            net = get_network_client()
+                            if not net.connected:
+                                ok = net.connect(APP_STATE["settings"].get("player_name", "玩家"), player_id, room_id="default")
+                                try:
+                                    if ok:
+                                        ui["chat"].add_message("系统", "已连接到服务器，已加入房间 default")
+                                    else:
+                                        ui["chat"].add_message("系统", "无法连接到服务器，聊天仅本地显示")
+                                except Exception:
+                                    pass
 
                         # 处理按钮事件
                         if ui.get("back_btn"):
@@ -640,9 +772,9 @@ def main() -> None:
                     elif APP_STATE["screen"] == "settings":
                         ui = APP_STATE["ui"]
                         if ui is None:
-                            ui = build_settings_ui(screen.get_size())
+                            ui = build_settings_ui(screen.get_size(), confirm_sound=confirm_sound)
                             # attach settings buttons from config
-                            settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings")
+                            settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings", click_sound=confirm_sound)
                             for sb in settings_buttons:
                                 cid = getattr(sb, "_cfg_id", None)
                                 if cid == "settings_back":
@@ -659,7 +791,7 @@ def main() -> None:
                         ui["player_name_input"].handle_event(event)
 
                         # 处理按钮事件
-                        for btn_key in ["back_btn", "light_btn", "dark_btn", "fullscreen_btn"]:
+                        for btn_key in ["back_btn", "light_btn", "dark_btn", "fullscreen_btn", "confirm_name_btn"]:
                             if ui.get(btn_key):
                                 ui[btn_key].handle_event(event)
 
@@ -670,6 +802,9 @@ def main() -> None:
                                 vol = max(0, min(100, int(rel_x / ui["volume_slider_rect"].width * 100)))
                                 APP_STATE["settings"]["volume"] = vol
                                 save_settings()
+
+            if APP_STATE["screen"] == "play":
+                process_network_messages(APP_STATE.get("ui"))
 
             # 如果存在待处理的 resize 且防抖期已过，则执行一次性的重建操作
             now_tick = pygame.time.get_ticks()
@@ -685,7 +820,7 @@ def main() -> None:
                     if APP_STATE["screen"] == "menu":
                         logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, pending_size)
                         buttons = create_buttons_from_config(
-                            BUTTONS_CONFIG, CALLBACKS, pending_size, logo_anchor, screen_filter="menu"
+                            BUTTONS_CONFIG, CALLBACKS, pending_size, logo_anchor, screen_filter="menu", click_sound=confirm_sound
                         )
                     elif APP_STATE["screen"] in ("play", "settings"):
                         # 在渲染阶段重建 UI（play/settings 会在后续逻辑中重建）
@@ -744,7 +879,7 @@ def main() -> None:
                 if ui is None:
                     ui = build_play_ui(screen.get_size())
                     # create play-specific buttons from config and attach to ui
-                    play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play")
+                    play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play", click_sound=confirm_sound)
                     for pb in play_buttons:
                         cid = getattr(pb, "_cfg_id", None)
                         if cid == "play_back":
@@ -771,7 +906,7 @@ def main() -> None:
                 if ui is None:
                     ui = build_settings_ui(screen.get_size())
                     # attach settings buttons from config
-                    settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings")
+                    settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings", click_sound=confirm_sound)
                     for sb in settings_buttons:
                         cid = getattr(sb, "_cfg_id", None)
                         if cid == "settings_back":
@@ -841,6 +976,8 @@ def main() -> None:
                 label_y = pn_rect.y + (pn_rect.height - label.get_height()) // 2
                 screen.blit(label, (label_x, label_y))
                 ui["player_name_input"].draw(screen)
+                if ui.get("confirm_name_btn"):
+                    ui["confirm_name_btn"].draw(screen)
 
                 # 难度设置已从界面移除
 
@@ -899,6 +1036,25 @@ def main() -> None:
                 # 返回按钮
                 if ui.get("back_btn"):
                     ui["back_btn"].draw(screen)
+
+            # 绘制通知
+            now_ms = pygame.time.get_ticks()
+            APP_STATE["notifications"] = [n for n in APP_STATE["notifications"] if n["end_time"] > now_ms]
+            for i, n in enumerate(APP_STATE["notifications"]):
+                try:
+                    n_font = pygame.font.SysFont("Microsoft YaHei", 24, bold=True)
+                except Exception:
+                    n_font = pygame.font.SysFont(None, 24)
+                
+                txt_surf = n_font.render(n["text"], True, n["color"])
+                # 居中显示在屏幕顶部
+                tx = (screen.get_width() - txt_surf.get_width()) // 2
+                ty = 50 + i * 50
+                # 绘制背景框
+                bg_rect = pygame.Rect(tx - 15, ty - 10, txt_surf.get_width() + 30, txt_surf.get_height() + 20)
+                pygame.draw.rect(screen, (255, 255, 255), bg_rect, border_radius=8)
+                pygame.draw.rect(screen, n["color"], bg_rect, 2, border_radius=8)
+                screen.blit(txt_surf, (tx, ty))
 
             pygame.display.flip()
             clock.tick(60)
