@@ -58,6 +58,7 @@ BUTTONS_CONFIG += [
         "fg_color": [255, 255, 255],
         "font_size": 20,
         "font_name": "Microsoft YaHei",
+        "callback": "on_back",
     },
     {
         "id": "play_send",
@@ -72,6 +73,7 @@ BUTTONS_CONFIG += [
         "fg_color": [255, 255, 255],
         "font_size": 20,
         "font_name": "Microsoft YaHei",
+        "callback": "on_send",
     },
     {
         "id": "settings_back",
@@ -85,6 +87,7 @@ BUTTONS_CONFIG += [
         "fg_color": [255, 255, 255],
         "font_size": 20,
         "font_name": "Microsoft YaHei",
+        "callback": "on_back",
     },
     {
         "id": "settings_light",
@@ -98,6 +101,7 @@ BUTTONS_CONFIG += [
         "fg_color": [255, 255, 255],
         "font_size": 18,
         "font_name": "Microsoft YaHei",
+        "callback": "on_light_theme",
     },
     {
         "id": "settings_dark",
@@ -111,6 +115,7 @@ BUTTONS_CONFIG += [
         "fg_color": [255, 255, 255],
         "font_size": 18,
         "font_name": "Microsoft YaHei",
+        "callback": "on_dark_theme",
     },
     {
         "id": "settings_fullscreen",
@@ -124,5 +129,6 @@ BUTTONS_CONFIG += [
         "fg_color": [255, 255, 255],
         "font_size": 18,
         "font_name": "Microsoft YaHei",
+        "callback": "on_fullscreen",
     },
 ]

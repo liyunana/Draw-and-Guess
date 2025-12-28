@@ -21,6 +21,7 @@ class Button:
         text,
         bg_color=(0, 0, 0),
         fg_color=(255, 255, 255),
+        hover_bg_color: Optional[tuple] = None,
         font_size=24,
         font_name=None,
         click_sound: Optional[str] = None,
@@ -30,15 +31,19 @@ class Button:
         Initialize the button with position, size, text, colors and font.
         - `bg_color`: background color (button rectangle)
         - `fg_color`: text color
+        - `hover_bg_color`: background color when hovered
         - `font_name`: optional; either a system font name or path to .ttf file
         """
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
         self.bg_color = bg_color
+        self.orig_bg_color = bg_color
+        self.hover_bg_color = hover_bg_color
         self.fg_color = fg_color
         self.font_size = font_size
         # 按钮状态
         self.pressed: bool = False
+        self.hovered: bool = False
 
         # 点击回调（可选）
         self.on_click: Optional[Callable[[], None]] = on_click
@@ -88,10 +93,13 @@ class Button:
     def handle_event(self, event: pygame.event.Event) -> None:
         """Handle pygame mouse events to manage pressed state and clicks.
 
+        - MOUSEMOTION: update hovered state
         - MOUSEBUTTONDOWN (left): set pressed True when hovered
         - MOUSEBUTTONUP (left): if was pressed and still hovered, trigger click
         """
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        if event.type == pygame.MOUSEMOTION:
+            self.hovered = self.rect.collidepoint(event.pos)
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.rect.collidepoint(event.pos):
                 self.pressed = True
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -113,6 +121,11 @@ class Button:
 
     def draw(self, screen):
         """Draw the button on the given screen with shadow and rounded corners."""
+        # Determine current background color based on state
+        current_bg = self.bg_color
+        if self.hovered and self.hover_bg_color:
+            current_bg = self.hover_bg_color
+
         # 根据是否按下绘制不同的视觉效果：按下时缩短阴影并将文本向右下偏移，边框更深，模拟凹陷
         if self.pressed:
             shadow_offset = 2
@@ -121,7 +134,7 @@ class Button:
             pygame.draw.rect(screen, (130, 130, 130), shadow_rect, border_radius=8)
 
             # 背景（略微加深）
-            darker = tuple(max(0, c - 20) for c in self.bg_color)
+            darker = tuple(max(0, c - 20) for c in current_bg)
             pygame.draw.rect(screen, darker, self.rect, border_radius=8)
             # 内部浅色边框模拟内凹
             inner = self.rect.inflate(-4, -4)
@@ -137,7 +150,7 @@ class Button:
             shadow_rect = pygame.Rect(self.rect.x + shadow_offset, self.rect.y + shadow_offset, self.rect.width, self.rect.height)
             pygame.draw.rect(screen, (150, 150, 150), shadow_rect, border_radius=8)
 
-            pygame.draw.rect(screen, self.bg_color, self.rect, border_radius=8)
+            pygame.draw.rect(screen, current_bg, self.rect, border_radius=8)
             pygame.draw.rect(screen, (100, 100, 100), self.rect, 2, border_radius=8)  # 边框
 
             # 文本居中

@@ -194,22 +194,6 @@ def create_buttons_from_config(
             target_x = x
 
         initial_x = start_x if screen_filter == "menu" else target_x
-        btn = Button(
-            x=initial_x,
-            y=y,
-            width=w,
-            height=h,
-            text=cfg.get("text", ""),
-            bg_color=tuple(cfg.get("bg_color", (0, 0, 0))),
-            fg_color=tuple(cfg.get("fg_color", (255, 255, 255))),
-            font_size=cfg.get("font_size", 24),
-            font_name=cfg.get("font_name", None),
-        )
-        # attach config id for callers to find specific buttons
-        try:
-            setattr(btn, "_cfg_id", cfg.get("id"))
-        except Exception:
-            pass
 
         orig = tuple(cfg.get("bg_color", (0, 0, 0)))
         hover = tuple(
@@ -219,12 +203,35 @@ def create_buttons_from_config(
             )
         )
 
+        cb_name = cfg.get("callback")
+        callback = None
+        if cb_name and cb_name in callbacks_map:
+            callback = callbacks_map[cb_name]
+
+        btn = Button(
+            x=initial_x,
+            y=y,
+            width=w,
+            height=h,
+            text=cfg.get("text", ""),
+            bg_color=orig,
+            fg_color=tuple(cfg.get("fg_color", (255, 255, 255))),
+            hover_bg_color=hover,
+            font_size=cfg.get("font_size", 24),
+            font_name=cfg.get("font_name", None),
+            on_click=callback,
+        )
+        # attach config id for callers to find specific buttons
+        try:
+            setattr(btn, "_cfg_id", cfg.get("id"))
+        except Exception:
+            pass
+
         BUTTON_ORIG_BG[id(btn)] = orig
         BUTTON_HOVER_BG[id(btn)] = hover
 
-        cb_name = cfg.get("callback")
-        if cb_name and cb_name in callbacks_map:
-            BUTTON_CALLBACKS[id(btn)] = callbacks_map[cb_name]
+        if callback:
+            BUTTON_CALLBACKS[id(btn)] = callback
 
         # register animation state for slide-in from right
         BUTTON_ANIMS[id(btn)] = {
@@ -478,6 +485,55 @@ def main() -> None:
         # 防抖延迟（毫秒），在连续调整窗口时等待短暂静默期再重建 UI
         RESIZE_DEBOUNCE_MS = 140
 
+        def on_back():
+            APP_STATE["screen"] = "menu"
+            APP_STATE["ui"] = None
+            nonlocal logo_orig, logo_base_size, logo_anchor, buttons
+            logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, screen.get_size())
+            buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu")
+
+        def on_light_theme():
+            APP_STATE["settings"]["theme"] = "light"
+            save_settings()
+
+        def on_dark_theme():
+            APP_STATE["settings"]["theme"] = "dark"
+            save_settings()
+
+        def on_fullscreen():
+            nonlocal screen, logo_orig, logo_base_size, logo_anchor
+            cur = bool(APP_STATE["settings"].get("fullscreen", False))
+            new = not cur
+            APP_STATE["settings"]["fullscreen"] = new
+            save_settings()
+            try:
+                if new:
+                    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+                else:
+                    screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
+                logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, screen.get_size())
+                APP_STATE["ui"] = None
+            except Exception:
+                pass
+
+        def on_send():
+            ui = APP_STATE["ui"]
+            if ui and ui.get("input"):
+                txt = ui["input"].text.strip()
+                if txt:
+                    cb = ui["input"].on_submit
+                    if cb:
+                        cb(txt)
+                    ui["input"].text = ""
+
+        CALLBACKS.update({
+            "on_back": on_back,
+            "on_light_theme": on_light_theme,
+            "on_dark_theme": on_dark_theme,
+            "on_fullscreen": on_fullscreen,
+            "on_send": on_send,
+        })
+
         clock = pygame.time.Clock()
         running = True
 
@@ -494,51 +550,37 @@ def main() -> None:
                 else:
                     # 根据当前界面分发事件
                     if APP_STATE["screen"] == "menu":
-                        if event.type == pygame.MOUSEMOTION:
-                            mouse_pos = event.pos
-                            for b in buttons:
-                                if b.is_hovered(mouse_pos):
-                                    hover_color = BUTTON_HOVER_BG.get(id(b), (70, 160, 255))
-                                    b.set_colors(bg_color=hover_color)
-                                else:
-                                    orig_color = BUTTON_ORIG_BG.get(id(b))
-                                    if orig_color is not None:
-                                        b.set_colors(bg_color=orig_color)
-                        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                            mouse_pos = event.pos
-                            for b in buttons:
-                                if b.is_clicked(mouse_pos, event.button):
-                                    cb = BUTTON_CALLBACKS.get(id(b))
-                                    if cb:
-                                        cb()
-                            # 进入 play/settings 时在渲染阶段统一构建 UI（含配置按钮）
-                            if APP_STATE["screen"] in ("play", "settings"):
-                                APP_STATE["ui"] = None
+                        for b in buttons:
+                            b.handle_event(event)
+
+                        # 进入 play/settings 时在渲染阶段统一构建 UI（含配置按钮）
+                        if APP_STATE["screen"] in ("play", "settings"):
+                            APP_STATE["ui"] = None
                     elif APP_STATE["screen"] == "play":
                         ui = APP_STATE["ui"]
                         if ui is None:
                             ui = build_play_ui(screen.get_size())
+                            # create play-specific buttons from config and attach to ui
+                            play_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="play")
+                            for pb in play_buttons:
+                                cid = getattr(pb, "_cfg_id", None)
+                                if cid == "play_back":
+                                    ui["back_btn"] = pb
+                                elif cid == "play_send":
+                                    ui["send_btn"] = pb
                             APP_STATE["ui"] = ui
+
+                        # 处理按钮事件
+                        if ui.get("back_btn"):
+                            ui["back_btn"].handle_event(event)
+                        if ui.get("send_btn"):
+                            ui["send_btn"].handle_event(event)
+
                         # 先处理鼠标事件到组件（工具栏、画布、输入框）
                         if event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.MOUSEMOTION:
                             ui["toolbar"].handle_event(event)
                             ui["canvas"].handle_event(event)
                             ui["input"].handle_event(event)
-                            # 返回菜单按钮
-                            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                                # 发送按钮点击：提交输入内容
-                                if ui.get("send_btn") and ui["send_btn"].is_clicked(event.pos, event.button):
-                                    txt = ui["input"].text.strip()
-                                    if txt:
-                                        cb = ui["input"].on_submit
-                                        if cb:
-                                            cb(txt)
-                                        ui["input"].text = ""
-                                if ui.get("back_btn") and ui["back_btn"].is_clicked(event.pos, event.button):
-                                    APP_STATE["screen"] = "menu"
-                                    APP_STATE["ui"] = None  # 清除 UI
-                                    logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, screen.get_size())
-                                    buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="menu")
                         else:
                             # 其他事件（键盘等）
                             ui["input"].handle_event(event)
@@ -588,54 +630,30 @@ def main() -> None:
                         ui = APP_STATE["ui"]
                         if ui is None:
                             ui = build_settings_ui(screen.get_size())
+                            # attach settings buttons from config
+                            settings_buttons = create_buttons_from_config(BUTTONS_CONFIG, CALLBACKS, screen.get_size(), logo_anchor, screen_filter="settings")
+                            for sb in settings_buttons:
+                                cid = getattr(sb, "_cfg_id", None)
+                                if cid == "settings_back":
+                                    ui["back_btn"] = sb
+                                elif cid == "settings_light":
+                                    ui["light_btn"] = sb
+                                elif cid == "settings_dark":
+                                    ui["dark_btn"] = sb
+                                elif cid == "settings_fullscreen":
+                                    ui["fullscreen_btn"] = sb
                             APP_STATE["ui"] = ui
+
                         # 处理设置界面事件
                         ui["player_name_input"].handle_event(event)
-                        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                            mouse_pos = event.pos
-                            # 返回按钮
-                            if ui.get("back_btn") and ui["back_btn"].is_clicked(mouse_pos, event.button):
-                                APP_STATE["screen"] = "menu"
-                                APP_STATE["ui"] = None  # 清除 UI
-                                logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, screen.get_size())
-                                buttons = create_buttons_from_config(
-                                    BUTTONS_CONFIG,
-                                    CALLBACKS,
-                                    screen.get_size(),
-                                    logo_anchor,
-                                    screen_filter="menu",
-                                )
-                            # 难度设置已从设置界面移除
-                            # 主题切换
-                            elif ui.get("light_btn") and ui["light_btn"].is_clicked(mouse_pos, event.button):
-                                APP_STATE["settings"]["theme"] = "light"
-                                save_settings()
-                            elif ui.get("dark_btn") and ui["dark_btn"].is_clicked(mouse_pos, event.button):
-                                APP_STATE["settings"]["theme"] = "dark"
-                                save_settings()
-                            # 全屏切换
-                            elif ui.get("fullscreen_btn") and ui["fullscreen_btn"].is_clicked(mouse_pos, event.button):
-                                cur = bool(APP_STATE["settings"].get("fullscreen", False))
-                                new = not cur
-                                APP_STATE["settings"]["fullscreen"] = new
-                                save_settings()
-                                try:
-                                    if new:
-                                        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-                                    else:
-                                        # 切换回窗口模式时使用默认 1280x720
-                                        screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
-                                except Exception:
-                                    pass
-                                # 切换显示模式后刷新 logo 锚点（避免后续回到菜单时沿用旧尺寸）
-                                try:
-                                    logo_orig, logo_base_size, logo_anchor = load_logo(LOGO_PATH, screen.get_size())
-                                except Exception:
-                                    pass
-                                # 重建 UI 以适配新分辨率
-                                APP_STATE["ui"] = None
+
+                        # 处理按钮事件
+                        for btn_key in ["back_btn", "light_btn", "dark_btn", "fullscreen_btn"]:
+                            if ui.get(btn_key):
+                                ui[btn_key].handle_event(event)
+
                         # 音量滑块拖动
-                        elif event.type == pygame.MOUSEMOTION and pygame.mouse.get_pressed()[0]:
+                        if event.type == pygame.MOUSEMOTION and pygame.mouse.get_pressed()[0]:
                             if ui["volume_slider_rect"].collidepoint(event.pos):
                                 rel_x = event.pos[0] - ui["volume_slider_rect"].x
                                 vol = max(0, min(100, int(rel_x / ui["volume_slider_rect"].width * 100)))
