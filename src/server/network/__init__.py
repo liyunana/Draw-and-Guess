@@ -2,12 +2,6 @@
 网络通信模块
 
 处理 Socket 连接、消息收发、协议解析等网络功能。
-
-设计目标：
-- 提供基础的 TCP 服务器，支持多个客户端并发连接
-- 使用基于 JSON 的应用层协议（参见 src/shared/protocols.py）
-- 按消息类型路由到游戏房间逻辑（参见 src/server/game/__init__.py）
-- 支持房间的广播、单发与会话管理
 """
 
 from __future__ import annotations
