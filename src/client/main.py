@@ -67,6 +67,9 @@ APP_STATE: Dict[str, Any] = {
     # resize 防抖：在窗口调整结束后再重建 UI，减少频繁重建导致的卡顿
     "pending_resize_until": 0,
     "pending_resize_size": None,
+    # 保存聊天消息和滚动状态（窗口改变时）
+    "_saved_chat_messages": None,
+    "_saved_chat_scroll": None,
 }
 
 
@@ -314,7 +317,7 @@ CALLBACKS: Dict[str, Callable[..., Any]] = {
 
 
 def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
-    """根据屏幕尺寸构建游戏界面组件。"""
+    """根据屏幕尺寸构建游戏界面组件。窗口大小改变时会自动保留聊天消息。"""
     sw, sh = screen_size
     pad = 16
     sidebar_w = 260
@@ -347,7 +350,30 @@ def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
         pass
 
     toolbar = Toolbar(toolbar_rect, colors=BRUSH_COLORS, sizes=BRUSH_SIZES, font_name="Microsoft YaHei", click_sound=confirm_sound)
+    
+    # 创建新聊天框，从保存的消息中恢复
     chat = ChatPanel(chat_rect, font_size=18, font_name="Microsoft YaHei")
+    
+    # 尝试从保存的消息恢复（窗口大小改变时）
+    saved_messages = APP_STATE.get("_saved_chat_messages")
+    if saved_messages:
+        chat.messages = saved_messages
+        # 恢复滚动状态
+        saved_scroll = APP_STATE.get("_saved_chat_scroll", 0)
+        chat.scroll_offset = saved_scroll
+        # 清除保存的数据
+        APP_STATE["_saved_chat_messages"] = None
+        APP_STATE["_saved_chat_scroll"] = None
+    else:
+        # 尝试从旧 UI 恢复消息（备用方案）
+        old_ui = APP_STATE.get("ui")
+        if old_ui and isinstance(old_ui, dict) and "chat" in old_ui:
+            old_chat = old_ui["chat"]
+            if hasattr(old_chat, "messages") and old_chat.messages:
+                chat.messages = old_chat.messages[:]
+                if hasattr(old_chat, "scroll_offset"):
+                    chat.scroll_offset = old_chat.scroll_offset
+    
     text_input = TextInput(input_rect, font_name="Microsoft YaHei", font_size=22, placeholder="输入猜词或聊天... Enter发送 / Shift+Enter换行")
     # 发送按钮将在配置中创建并附加到 UI（位置依赖输入区域）
 
@@ -678,6 +704,14 @@ def main() -> None:
                     # 记录待处理的尺寸（不在每次事件中重建显示），等待防抖期结束后一次性调用 set_mode
                     APP_STATE["pending_resize_size"] = event.size
                     APP_STATE["pending_resize_until"] = pygame.time.get_ticks() + RESIZE_DEBOUNCE_MS
+                    # 保存当前聊天框的消息，以便窗口改变后恢复
+                    ui = APP_STATE.get("ui")
+                    if ui and isinstance(ui, dict) and "chat" in ui:
+                        chat = ui["chat"]
+                        if hasattr(chat, "messages"):
+                            APP_STATE["_saved_chat_messages"] = chat.messages[:]
+                            if hasattr(chat, "scroll_offset"):
+                                APP_STATE["_saved_chat_scroll"] = chat.scroll_offset
                 else:
                     # 根据当前界面分发事件
                     if APP_STATE["screen"] == "menu":
@@ -724,6 +758,16 @@ def main() -> None:
                             ui["toolbar"].handle_event(event)
                             ui["canvas"].handle_event(event)
                             ui["input"].handle_event(event)
+                        elif event.type == pygame.MOUSEWHEEL and ui:
+                            # 处理聊天框的滚轮事件（只在 UI 已初始化时）
+                            try:
+                                chat_rect = ui.get("chat").rect if ui.get("chat") else None
+                                mouse_pos = pygame.mouse.get_pos()
+                                if chat_rect and chat_rect.collidepoint(mouse_pos):
+                                    # 如果鼠标在聊天框上，处理滚轮
+                                    ui["chat"].handle_scroll(event.y)
+                            except Exception:
+                                pass
                         else:
                             # 其他事件（键盘等）
                             ui["input"].handle_event(event)
