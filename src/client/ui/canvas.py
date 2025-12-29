@@ -1,5 +1,5 @@
 import pygame
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Callable, Dict, Any
 
 
 class Canvas:
@@ -39,6 +39,9 @@ class Canvas:
         # 鼠标状态跟踪
         self._drawing: bool = False  # 是否正在绘制
         self._last_pos: Optional[Tuple[int, int]] = None  # 上一次鼠标位置（用于绘制直线）
+        
+        # 绘画同步回调
+        self.on_draw_action: Optional[Callable[[Dict[str, Any]], None]] = None  # 绘画动作回调
 
     def to_local(self, pos: Tuple[int, int]) -> Tuple[int, int]:
         """将屏幕坐标转换为画布本地坐标
@@ -79,6 +82,13 @@ class Canvas:
     def clear(self) -> None:
         """清空画布，恢复到初始背景色"""
         self.surface.fill(self.bg_color)
+        
+        # 发送清空画布同步事件
+        if self.on_draw_action:
+            self.on_draw_action({
+                "kind": "clear",
+                "bg_color": self.bg_color
+            })
 
     def _paint_at(self, local_pos: Tuple[int, int]) -> None:
         """在指定位置绘制一个点（圆形笔触）
@@ -90,6 +100,16 @@ class Canvas:
         """
         color = self.bg_color if self.mode == "erase" else self.brush_color
         pygame.draw.circle(self.surface, color, local_pos, self.brush_size)
+        
+        # 发送绘画同步事件
+        if self.on_draw_action:
+            self.on_draw_action({
+                "kind": "paint",
+                "pos": local_pos,
+                "color": color,
+                "size": self.brush_size,
+                "mode": self.mode
+            })
 
     def _line_to(self, local_from: Tuple[int, int], local_to: Tuple[int, int]) -> None:
         """从一点绘制直线到另一点（平滑鼠标拖动）
@@ -102,6 +122,17 @@ class Canvas:
         """
         color = self.bg_color if self.mode == "erase" else self.brush_color
         pygame.draw.line(self.surface, color, local_from, local_to, self.brush_size * 2)
+        
+        # 发送绘画同步事件
+        if self.on_draw_action:
+            self.on_draw_action({
+                "kind": "line",
+                "from": local_from,
+                "to": local_to,
+                "color": color,
+                "size": self.brush_size,
+                "mode": self.mode
+            })
 
     def handle_event(self, event: pygame.event.Event) -> None:
         """处理鼠标事件（绘制的核心交互）
@@ -152,3 +183,35 @@ class Canvas:
 
         # 绘制专业风格的边框（蓝灰色，3像素宽）
         pygame.draw.rect(screen, (150, 170, 200), self.rect, 3)
+
+    def apply_remote_action(self, action: Dict[str, Any]) -> None:
+        """应用远程绘画动作（来自其他客户端）
+        
+        Args:
+            action: 绘画动作字典，可包含:
+                - kind: "paint", "line", "clear"
+                - pos: 点的坐标 (仅paint)
+                - from, to: 线的起终点 (仅line)
+                - color: RGB颜色值
+                - size: 笔的大小
+                - mode: "draw" 或 "erase"
+                - bg_color: 背景色 (仅clear)
+        """
+        kind = action.get("kind", "")
+        
+        if kind == "paint":
+            pos = action.get("pos")
+            color = action.get("color", self.brush_color)
+            size = action.get("size", self.brush_size)
+            if pos:
+                pygame.draw.circle(self.surface, color, pos, size)
+        elif kind == "line":
+            pos_from = action.get("from")
+            pos_to = action.get("to")
+            color = action.get("color", self.brush_color)
+            size = action.get("size", self.brush_size)
+            if pos_from and pos_to:
+                pygame.draw.line(self.surface, color, pos_from, pos_to, size * 2)
+        elif kind == "clear":
+            bg_color = action.get("bg_color", self.bg_color)
+            self.surface.fill(bg_color)
