@@ -33,6 +33,7 @@ from src.shared.constants import (
 	MSG_START_GAME,
 	MSG_END_GAME,
 	MSG_NEXT_ROUND,
+	MSG_SET_GAME_CONFIG,
 	MSG_ERROR,
 )
 from src.shared.protocols import Message
@@ -196,12 +197,42 @@ class NetworkServer:
 				if sess.player_id and sess.player_name:
 					if room.add_player(sess.player_id, sess.player_name):
 						sess.room_id = target_room_id
+						# 容错：若房主缺失，指定为已有的第一个玩家
+						if room.owner_id is None:
+							try:
+								room.owner_id = next(iter(room.players))
+							except Exception:
+								room.owner_id = sess.player_id
 						self._send(sess, Message("ack", {"ok": True, "event": MSG_JOIN_ROOM, "room_id": target_room_id}))
 						self.broadcast_room_state(target_room_id)
 					else:
 						self._send(sess, Message("error", {"msg": "Could not join room"}))
 			else:
 				self._send(sess, Message("error", {"msg": "Room not found"}))
+		elif t == MSG_SET_GAME_CONFIG:
+			# 房主更新游戏参数
+			if sess.room_id and sess.room_id in self.rooms:
+				room = self.rooms[sess.room_id]
+				# 若尚未设定房主，则将当前请求者设为房主（容错）
+				if room.owner_id is None and sess.player_id:
+					room.owner_id = sess.player_id
+				if room.owner_id == sess.player_id:
+					try:
+						max_rounds = data.get("max_rounds")
+						round_time = data.get("round_time")
+						rest_time = data.get("rest_time")
+						if isinstance(max_rounds, int) and max_rounds > 0:
+							room.max_rounds = max_rounds
+						if isinstance(round_time, int) and round_time > 0:
+							# 模块化服务器使用 round_duration
+							room.round_duration = round_time
+						# rest_time 暂未在此实现，忽略或未来支持
+						self._send(sess, Message("ack", {"ok": True, "event": MSG_SET_GAME_CONFIG}))
+						self.broadcast_room_state(sess.room_id)
+					except Exception:
+						self._send(sess, Message("error", {"msg": "Invalid config"}))
+				else:
+					self._send(sess, Message("error", {"msg": "Permission denied"}))
 
 		elif t == MSG_LEAVE_ROOM:
 			# 离开房间

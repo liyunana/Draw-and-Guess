@@ -1309,20 +1309,6 @@ def main() -> None:
 
                         # 先处理鼠标事件到组件（工具栏、画布、输入框）
                         if event.type == pygame.MOUSEBUTTONDOWN:
-                            # 检查是否点击下一轮按钮
-                            current_room = APP_STATE.get("current_room") or {}
-                            drawer_id = current_room.get("drawer_id")
-                            self_id = APP_STATE.get("settings", {}).get("player_id")
-                            is_drawer = drawer_id and self_id and str(drawer_id) == str(self_id)
-                            
-                            if is_drawer and event.button == 1:
-                                sw, sh = screen.get_size()
-                                next_round_btn_rect = pygame.Rect(sw - 220, sh - 80, 180, 40)
-                                if next_round_btn_rect.collidepoint(event.pos):
-                                    net = get_network_client()
-                                    net.next_round()
-                                    add_notification("请求开始下一轮", color=(80, 180, 120))
-                            
                             ui["toolbar"].handle_event(event)
                             ui["canvas"].handle_event(event)
                             ui["input"].handle_event(event)
@@ -1390,6 +1376,16 @@ def main() -> None:
                         if ui is None:
                             ui = build_room_list_ui(screen.get_size())
                             APP_STATE["ui"] = ui
+                            # 进入房间列表时自动拉取一次列表
+                            try:
+                                player_id = APP_STATE["settings"].get("player_id") or ensure_player_identity()
+                                net = get_network_client()
+                                if net.connect(APP_STATE["settings"]["player_name"], player_id):
+                                    net.list_rooms()
+                                else:
+                                    add_notification("无法连接服务器，检查地址与端口", color=(200, 60, 60))
+                            except Exception:
+                                pass
                             # Rebuild room buttons based on APP_STATE["rooms"]
                             rooms = APP_STATE.get("rooms", [])
                             room_buttons = []
@@ -1422,6 +1418,19 @@ def main() -> None:
                             if ui.get("back_btn"): ui["back_btn"].handle_event(event)
                             for btn in ui.get("room_buttons", []):
                                 btn.handle_event(event)
+                        # 定时自动刷新房间列表（每2秒）
+                        if APP_STATE.get("screen") == "room_list":
+                            last = APP_STATE.get("rooms_last_refresh", 0)
+                            now = pygame.time.get_ticks()
+                            if now - last > 2000:
+                                APP_STATE["rooms_last_refresh"] = now
+                                try:
+                                    player_id = APP_STATE["settings"].get("player_id") or ensure_player_identity()
+                                    net = get_network_client()
+                                    if net.connected or net.connect(APP_STATE["settings"]["player_name"], player_id):
+                                        net.list_rooms()
+                                except Exception:
+                                    pass
 
                     elif APP_STATE["screen"] == "lobby":
                         ui = APP_STATE["ui"]
@@ -1684,28 +1693,7 @@ def main() -> None:
                         score_txt = font_score.render(f"{score}", True, (40, 40, 40))
                         screen.blit(score_txt, (score_x + 140, y_pos))
                 
-                # 如果是绘画者，显示下一轮按钮
-                drawer_id = current_room.get("drawer_id")
-                self_id = APP_STATE.get("settings", {}).get("player_id")
-                is_drawer = drawer_id and self_id and str(drawer_id) == str(self_id)
-                
-                if is_drawer:
-                    # 下一轮按钮
-                    next_round_btn_rect = pygame.Rect(sw - 220, sh - 80, 180, 40)
-                    pygame.draw.rect(screen, (80, 180, 120), next_round_btn_rect)
-                    pygame.draw.rect(screen, (60, 150, 100), next_round_btn_rect, 2)
-                    
-                    try:
-                        btn_font = pygame.font.SysFont("Microsoft YaHei", 20)
-                    except:
-                        btn_font = pygame.font.SysFont(None, 20)
-                    
-                    btn_txt = btn_font.render("下一轮", True, (255, 255, 255))
-                    screen.blit(btn_txt, (next_round_btn_rect.centerx - btn_txt.get_width() // 2, next_round_btn_rect.centery - btn_txt.get_height() // 2))
-                    
-                    # 处理点击（简单实现）
-                    if "next_round_clicked" not in APP_STATE:
-                        APP_STATE["next_round_clicked"] = False
+                # 移除“下一轮”按钮显示
             elif APP_STATE["screen"] == "room_list":
                 process_network_messages(APP_STATE.get("ui"))
                 ui = APP_STATE["ui"]
@@ -1772,6 +1760,21 @@ def main() -> None:
                         
                     title = font.render(f"房间: {rid}", True, title_color)
                     screen.blit(title, (screen.get_width() // 2 - title.get_width() // 2, 50))
+                    # 显示房主
+                    owner_id = current_room.get("owner_id")
+                    owner_name = None
+                    if owner_id:
+                        try:
+                            owner_name = (current_room.get("players", {}) or {}).get(str(owner_id), {}).get("name")
+                        except Exception:
+                            owner_name = None
+                    try:
+                        font_owner = pygame.font.SysFont("Microsoft YaHei", 22)
+                    except:
+                        font_owner = pygame.font.SysFont(None, 22)
+                    owner_label = f"房主: {owner_name or '未指定'}"
+                    owner_txt = font_owner.render(owner_label, True, text_color)
+                    screen.blit(owner_txt, (100, 110))
                     
                     # Player List
                     players = current_room.get("players", {})

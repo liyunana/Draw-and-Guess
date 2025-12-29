@@ -281,6 +281,12 @@ class NetworkServer:
                 if sess.player_id and sess.player_name:
                     if room.add_player(sess.player_id, sess.player_name):
                         sess.room_id = target_room_id
+                        # 容错：若房主缺失，指定为已有的第一个玩家
+                        if room.owner_id is None:
+                            try:
+                                room.owner_id = next(iter(room.players))
+                            except Exception:
+                                room.owner_id = sess.player_id
                         self._send(sess, Message("ack", {"ok": True, "event": MSG_JOIN_ROOM, "room_id": target_room_id}))
                         self.broadcast_room(target_room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
                     else:
@@ -318,6 +324,9 @@ class NetworkServer:
         elif t == MSG_SET_GAME_CONFIG:
             if sess.room_id and sess.room_id in self.rooms:
                 room = self.rooms[sess.room_id]
+                # 若尚未设定房主，则将当前请求者设为房主（容错）
+                if room.owner_id is None and sess.player_id:
+                    room.owner_id = sess.player_id
                 if room.owner_id == sess.player_id:
                     max_rounds = data.get("max_rounds")
                     round_time = data.get("round_time")
