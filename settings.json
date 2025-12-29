@@ -1,18 +1,9 @@
 {
-<<<<<<< HEAD
-  "player_name": "你妈妈",
+  "player_name": "玩家2",
   "difficulty": "普通",
-  "volume": 52,
+  "volume": 80,
   "theme": "dark",
-  "fullscreen": true,
-  "player_id": "0603892b-c5de-4224-be78-b82c0cc768c6"
-=======
-  "player_name": "Kyunana",
-  "difficulty": "普通",
-  "volume": 52,
-  "theme": "light",
   "fullscreen": false,
   "server_host": "127.0.0.1",
   "server_port": 5555
->>>>>>> 9f8090422ef7c495b7e3e4095e6d5f4f4d5ec33a
 }

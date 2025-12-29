@@ -525,6 +525,49 @@ def build_settings_ui(screen_size: tuple, confirm_sound: Optional[pygame.mixer.S
     # 音量滑块范围
     volume_slider_rect = make_slider_rect(control_x, row2_y, slider_w, slider_h)
 
+    # 服务器地址输入框
+    row3_y = int(sh * 0.52)
+    server_host_label = "服务器地址"
+    server_host_input = TextInput(
+        rect=pygame.Rect(control_x, row3_y, input_w, input_h),
+        font_name="Microsoft YaHei",
+        font_size=20,
+        placeholder=APP_STATE["settings"].get("server_host", "127.0.0.1"),
+    )
+    try:
+        server_host_input.text = APP_STATE["settings"].get("server_host", "127.0.0.1")
+    except Exception:
+        pass
+    def _update_server_host(host: str) -> None:
+        host = host.strip() or "127.0.0.1"
+        APP_STATE["settings"]["server_host"] = host
+        # 关闭旧连接，下次会用新地址
+        net = APP_STATE.get("net")
+        if net:
+            net.close()
+            APP_STATE["net"] = None
+        save_settings()
+        add_notification(f"服务器地址已设置为: {host}")
+    server_host_input.on_submit = _update_server_host
+
+    # 确认服务器地址按钮
+    confirm_host_btn = Button(
+        x=confirm_btn_x,
+        y=row3_y,
+        width=input_h,
+        height=input_h,
+        text="√",
+        bg_color=(50, 200, 50),
+        fg_color=(255, 255, 255),
+        hover_bg_color=(70, 220, 70),
+        font_size=24,
+        font_name="Microsoft YaHei",
+        click_sound=confirm_sound,
+    )
+    def _on_confirm_host():
+        _update_server_host(server_host_input.text)
+    confirm_host_btn.on_click = _on_confirm_host
+
     # 主题与全屏按钮由配置创建并在主循环中附加到 UI
 
     # 快捷键说明已移除（快捷键仍然存在于运行时，但不在设置界面展示）
@@ -532,6 +575,8 @@ def build_settings_ui(screen_size: tuple, confirm_sound: Optional[pygame.mixer.S
     return {
         "player_name_input": player_name_input,
         "confirm_name_btn": confirm_name_btn,
+        "server_host_input": server_host_input,
+        "confirm_host_btn": confirm_host_btn,
         # difficulty buttons removed
         "volume_slider_rect": volume_slider_rect,
         # theme/fullscreen buttons attached from config
@@ -1113,9 +1158,11 @@ def main() -> None:
 
                         # 处理设置界面事件
                         ui["player_name_input"].handle_event(event)
+                        if ui.get("server_host_input"):
+                            ui["server_host_input"].handle_event(event)
 
                         # 处理按钮事件
-                        for btn_key in ["back_btn", "light_btn", "dark_btn", "fullscreen_btn", "confirm_name_btn"]:
+                        for btn_key in ["back_btn", "light_btn", "dark_btn", "fullscreen_btn", "confirm_name_btn", "confirm_host_btn"]:
                             if ui.get(btn_key):
                                 ui[btn_key].handle_event(event)
 
@@ -1387,6 +1434,17 @@ def main() -> None:
                 # 音量百分比显示
                 vol_label = font_value.render(f"音量: {vol}%", True, value_color)
                 screen.blit(vol_label, (slider_rect.right + 16, slider_rect.y - 2))
+
+                # 服务器地址标签与输入框
+                if ui.get("server_host_input"):
+                    sh_rect = ui["server_host_input"].rect
+                    label = font_label.render("服务器地址:", True, label_color)
+                    label_x = max(panel_rect.x + 20, sh_rect.x - label.get_width() - 16)
+                    label_y = sh_rect.y + (sh_rect.height - label.get_height()) // 2
+                    screen.blit(label, (label_x, label_y))
+                    ui["server_host_input"].draw(screen)
+                    if ui.get("confirm_host_btn"):
+                        ui["confirm_host_btn"].draw(screen)
 
                 # 主题切换标签与按钮
                 theme_y = None
