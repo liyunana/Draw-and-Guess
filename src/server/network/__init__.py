@@ -285,22 +285,10 @@ class NetworkServer:
 					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
 
 		elif t == MSG_DRAW:
-<<<<<<< HEAD
 			# 绘图：广播给房间内其他玩家
 			if sess.room_id:
 				payload = {"by": sess.player_id, "data": data}
 				self.broadcast_room(sess.room_id, Message("draw_sync", payload), exclude=sess)
-
-=======
-			# 绘图：发送给房间内的其他客户端
-			if sess.room_id:
-				payload = {"by": sess.player_id, "data": data}
-				self.broadcast_room(sess.room_id, Message("draw_sync", payload), exclude=sess)
-			else:
-				# 如果没有房间，则广播给所有客户端
-				payload = {"by": sess.player_id, "data": data}
-				self.broadcast(Message("draw_sync", payload), exclude=sess)
->>>>>>> screen
 		elif t == MSG_CHAT:
 			# 聊天
 			if sess.room_id:

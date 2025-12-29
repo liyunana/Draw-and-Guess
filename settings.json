@@ -1,13 +1,7 @@
 {
-<<<<<<< HEAD
-  "player_name": "玩家2",
-  "difficulty": "普通",
-  "volume": 80,
-=======
   "player_name": "玩家",
   "difficulty": "普通",
-  "volume": 4,
->>>>>>> screen
+  "volume": 80,
   "theme": "dark",
   "fullscreen": false,
   "server_host": "127.0.0.1",
