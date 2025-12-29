@@ -31,17 +31,21 @@ def main():
     logger.info("=" * 50)
 
     try:
-        # TODO: 实现服务器启动逻辑
+        from src.server.network import NetworkServer
+        server = NetworkServer(DEFAULT_HOST, DEFAULT_PORT)
+        server.start()
+        
         logger.info("服务器运行中，按 Ctrl+C 停止")
 
         # 保持服务器运行
-        import time
-
         while True:
+            import time
             time.sleep(1)
 
     except KeyboardInterrupt:
         logger.info("\n服务器正在关闭...")
+        if 'server' in locals():
+            server.stop()
     except Exception as e:
         logger.error(f"服务器错误: {e}", exc_info=True)
     finally:
