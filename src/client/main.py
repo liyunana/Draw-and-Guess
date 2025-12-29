@@ -97,11 +97,13 @@ def load_settings() -> None:
 
 
 def save_settings() -> None:
-    """将当前设置保存到 JSON 文件。"""
+    """将当前设置保存到 JSON 文件（不保存 player_id，每次启动会重新生成）。"""
     try:
         SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # 排除 player_id，因为它是每次启动时动态生成的
+        settings_to_save = {k: v for k, v in APP_STATE["settings"].items() if k != "player_id"}
         with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(APP_STATE["settings"], f, ensure_ascii=False, indent=2)
+            json.dump(settings_to_save, f, ensure_ascii=False, indent=2)
     except Exception as exc:
         logger.warning("保存设置失败: %s", exc)
 
@@ -116,13 +118,12 @@ def add_notification(text: str, color=(50, 200, 50), duration=2.0) -> None:
 
 
 def ensure_player_identity() -> str:
-    """确保存在稳定的 player_id（用于房间聊天标识）。"""
-    pid = APP_STATE["settings"].get("player_id")
-    if not pid:
-        pid = str(uuid.uuid4())
-        APP_STATE["settings"]["player_id"] = pid
-        save_settings()
-    return str(pid)
+    """为本次会话生成唯一 player_id（每次启动都不同，支持多客户端）。"""
+    # 每次启动生成新的 player_id，支持同一台机器运行多个客户端
+    pid = str(uuid.uuid4())
+    APP_STATE["settings"]["player_id"] = pid
+    # 不保存 player_id 到文件，避免多客户端冲突
+    return pid
 
 
 def get_network_client() -> NetworkClient:
@@ -582,6 +583,11 @@ def build_room_list_ui(screen_size: tuple) -> Dict[str, Any]:
         font_name="Microsoft YaHei", font_size=20
     )
     def _on_back():
+        # 关闭网络连接，确保下次进入时用新的名称重新连接
+        net = APP_STATE.get("net")
+        if net:
+            net.close()
+            APP_STATE["net"] = None
         APP_STATE["screen"] = "menu"
         APP_STATE["ui"] = None
     back_btn.on_click = _on_back
