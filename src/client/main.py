@@ -731,6 +731,19 @@ def process_network_messages(ui: Optional[Dict[str, Any]]) -> None:
         # 房间状态更新（兼容老的 room_state）
         if msg.type == MSG_ROOM_UPDATE or msg.type == "room_state":
             APP_STATE["current_room"] = data
+            
+            # 更新 HUD 中的词语和绘者状态
+            if APP_STATE["screen"] == "play" and ui and "hud" in ui:
+                hud = ui["hud"]
+                player_id = APP_STATE["settings"].get("player_id")
+                drawer_id = data.get("drawer_id")
+                hud["is_drawer"] = (player_id == drawer_id)
+                # 如果是绘者，显示词语；否则词语为 None（会显示"隐藏"）
+                if hud["is_drawer"]:
+                    hud["current_word"] = data.get("current_word")
+                else:
+                    hud["current_word"] = None
+            
             if APP_STATE["screen"] == "lobby":
                 APP_STATE["ui"] = None
             if data.get("status") == "playing" and APP_STATE["screen"] == "lobby":
@@ -817,9 +830,14 @@ def update_and_draw_hud(screen: pygame.Surface, ui: Dict[str, Any]) -> None:
     time_txt = font.render(f"剩余时间: {t_left}s", True, (60, 60, 60))
     screen.blit(time_txt, (rect.x + 12, rect.y + (top_h - time_txt.get_height()) // 2))
 
-    # 当前词（作为画手预览）
-    word = hud.get("current_word") or "(未选择)"
-    word_txt = font.render(f"当前词: {word}", True, (60, 60, 60))
+    # 当前词（仅绘者看得见，其他玩家隐藏）
+    is_drawer = hud.get("is_drawer", False)
+    if is_drawer:
+        word = hud.get("current_word") or "(未选择)"
+        word_display = f"当前词: {word}"
+    else:
+        word_display = "当前词: (隐藏)"  # 非绘者看不到词语
+    word_txt = font.render(word_display, True, (60, 60, 60))
     screen.blit(word_txt, (time_txt.get_rect(topleft=(rect.x + 12, rect.y)).right + 24, rect.y + (top_h - word_txt.get_height()) // 2))
 
     # 模式与画笔

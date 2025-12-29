@@ -55,8 +55,12 @@ class GameRoom:
                 if self.status == "playing":
                     self.next_round()
 
-    def get_public_state(self) -> dict:
-        """获取房间的公开状态（用于广播给所有玩家）"""
+    def get_public_state(self, for_drawer: bool = False) -> dict:
+        """获取房间的公开状态（用于广播给所有玩家）
+        
+        Args:
+            for_drawer: 如果为True，包含当前词语；否则隐藏词语（只有绘者看得到）
+        """
         return {
             "room_id": self.room_id,
             "owner_id": self.owner_id,
@@ -65,7 +69,7 @@ class GameRoom:
             "drawer_id": self.drawer_id,
             "round_number": self.round_number,
             "max_rounds": self.max_rounds,
-            "current_word": self.current_word if self.status == "playing" else None,  # 简化：实际应只发给画手
+            "current_word": self.current_word if (self.status == "playing" and for_drawer) else None,
             "drawer_order": self.drawer_order,  # 绘画顺序列表
             "current_drawer_index": self.current_drawer_index,  # 当前轮次索引
         }

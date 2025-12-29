@@ -176,8 +176,7 @@ class NetworkServer:
 				sess.room_id = room_id
 				
 				self._send(sess, Message("ack", {"ok": True, "event": MSG_CREATE_ROOM, "room_id": room_id}))
-				self.broadcast_room(room_id, Message(MSG_ROOM_UPDATE, new_room.get_public_state()))
-
+			self.broadcast_room_state(room_id)
 		elif t == MSG_LIST_ROOMS:
 			# 获取房间列表
 			room_list = []
@@ -198,7 +197,7 @@ class NetworkServer:
 					if room.add_player(sess.player_id, sess.player_name):
 						sess.room_id = target_room_id
 						self._send(sess, Message("ack", {"ok": True, "event": MSG_JOIN_ROOM, "room_id": target_room_id}))
-						self.broadcast_room(target_room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
+					self.broadcast_room_state(target_room_id)
 					else:
 						self._send(sess, Message("error", {"msg": "Could not join room"}))
 			else:
@@ -210,9 +209,7 @@ class NetworkServer:
 				room = self.rooms[sess.room_id]
 				if sess.player_id:
 					room.remove_player(sess.player_id)
-					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
-					
-					# 如果房间空了，删除房间
+				self.broadcast_room_state(sess.room_id)
 					if not room.players:
 						del self.rooms[sess.room_id]
 			
@@ -228,9 +225,7 @@ class NetworkServer:
 				if room.owner_id == sess.player_id:
 					if target_player_id in room.players:
 						room.remove_player(target_player_id)
-						self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
-						
-						# 通知被踢玩家
+					self.broadcast_room_state(sess.room_id)
 						for s in self.sessions.values():
 							if s.player_id == target_player_id:
 								s.room_id = None
@@ -248,8 +243,8 @@ class NetworkServer:
 					ok = room.start_game()
 					
 					if ok:
-						# 广播游戏开始和房间状态更新
-						self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
+					# 广播游戏开始和房间状态更新（词语隐藏）
+					self.broadcast_room_state(sess.room_id)
 						# 发送特定的游戏开始事件，包含绘画顺序信息
 						self.broadcast_room(sess.room_id, Message("event", {
 							"type": MSG_START_GAME, 
@@ -272,26 +267,25 @@ class NetworkServer:
 				ok = room.next_round()
 				
 				if ok:
-					# 广播房间状态更新
-					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
-					# 发送轮次开始事件
-					self.broadcast_room(sess.room_id, Message("event", {
-						"type": MSG_NEXT_ROUND,
-						"ok": True,
-						"drawer_id": room.drawer_id,
-						"round_number": room.round_number
-					}))
-				else:
-					# 游戏结束
-					self.broadcast_room(sess.room_id, Message("event", {"type": MSG_END_GAME, "ok": True}))
-					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
-
+				# 广播房间状态更新（词语隐藏）
+				self.broadcast_room_state(sess.room_id)
+				# 发送轮次开始事件
+				self.broadcast_room(sess.room_id, Message("event", {
+					"type": MSG_NEXT_ROUND,
+					"ok": True,
+					"drawer_id": room.drawer_id,
+					"round_number": room.round_number
+				}))
+			else:
+				# 游戏结束
+				self.broadcast_room(sess.room_id, Message("event", {"type": MSG_END_GAME, "ok": True}))
+				self.broadcast_room_state(sess.room_id)
 		elif t == MSG_END_GAME:
 			if sess.room_id and sess.room_id in self.rooms:
 				room = self.rooms[sess.room_id]
 				# room.end_game()
 				room.status = "ended"
-				self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
+				self.broadcast_room_state(sess.room_id)
 				self.broadcast_room(sess.room_id, Message("event", {"type": MSG_END_GAME, "ok": True}))
 
 		elif t == MSG_GUESS:
@@ -304,12 +298,7 @@ class NetworkServer:
 					# 简化
 					ok, score = False, 0
 					self._send(sess, Message("guess_result", {"ok": ok, "score": score}))
-					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
-
-		elif t == MSG_DRAW:
-			# 绘图：广播给房间内其他玩家
-			if sess.room_id:
-				payload = {"by": sess.player_id, "data": data}
+				self.broadcast_room_state(sess.room_id)
 				self.broadcast_room(sess.room_id, Message("draw_sync", payload), exclude=sess)
 		elif t == MSG_CHAT:
 			# 聊天
@@ -341,6 +330,19 @@ class NetworkServer:
 				if exclude and s is exclude:
 					continue
 				self._send(s, msg)
+
+	def broadcast_room_state(self, room_id: str) -> None:
+		"""向房间广播房间状态，但对非绘者隐藏当前词语"""
+		if room_id not in self.rooms:
+			return
+		room = self.rooms[room_id]
+		
+		for s in list(self.sessions.values()):
+			if s.room_id == room_id:
+				# 如果该玩家是绘者，发送包含词语的状态；否则隐藏词语
+				is_drawer = (s.player_id == room.drawer_id)
+				state = room.get_public_state(for_drawer=is_drawer)
+				self._send(s, Message(MSG_ROOM_UPDATE, state))
 
 	def broadcast(self, msg: Message, exclude: Optional[ClientSession] = None) -> None:
 		"""向所有连接广播 (慎用)"""
