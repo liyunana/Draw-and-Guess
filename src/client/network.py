@@ -9,7 +9,19 @@ import uuid
 from queue import SimpleQueue, Empty
 from typing import List, Optional
 
-from src.shared.constants import BUFFER_SIZE, DEFAULT_HOST, DEFAULT_PORT, MSG_CHAT, MSG_CONNECT, MSG_JOIN_ROOM
+from src.shared.constants import (
+    BUFFER_SIZE, 
+    DEFAULT_HOST, 
+    DEFAULT_PORT, 
+    MSG_CHAT, 
+    MSG_CONNECT, 
+    MSG_JOIN_ROOM,
+    MSG_CREATE_ROOM,
+    MSG_LIST_ROOMS,
+    MSG_LEAVE_ROOM,
+    MSG_KICK_PLAYER,
+    MSG_START_GAME
+)
 from src.shared.protocols import Message
 
 
@@ -32,26 +44,42 @@ class NetworkClient:
     def connected(self) -> bool:
         return bool(self.sock) and self._running.is_set()
 
-    def connect(self, player_name: str, player_id: Optional[str] = None, room_id: str = "default") -> bool:
-        """连接服务器并加入房间。"""
+    def connect(self, player_name: str, player_id: Optional[str] = None) -> bool:
+        """连接服务器。"""
         if self.connected:
             return True
         self.player_id = player_id or str(uuid.uuid4())
         self.player_name = player_name or "玩家"
-        self.room_id = room_id
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.host, self.port))
             self._running.set()
             self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
             self._recv_thread.start()
-            # 注册并加入房间
+            # 注册
             self._send(Message(MSG_CONNECT, {"player_id": self.player_id, "name": self.player_name}))
-            self._send(Message(MSG_JOIN_ROOM, {"room_id": self.room_id}))
             return True
         except OSError:
             self.close()
             return False
+
+    def create_room(self, room_name: str = "New Room") -> None:
+        self._send(Message(MSG_CREATE_ROOM, {"name": room_name}))
+
+    def join_room(self, room_id: str) -> None:
+        self._send(Message(MSG_JOIN_ROOM, {"room_id": room_id}))
+
+    def list_rooms(self) -> None:
+        self._send(Message(MSG_LIST_ROOMS, {}))
+
+    def leave_room(self) -> None:
+        self._send(Message(MSG_LEAVE_ROOM, {}))
+
+    def kick_player(self, player_id: str) -> None:
+        self._send(Message(MSG_KICK_PLAYER, {"player_id": player_id}))
+
+    def start_game(self) -> None:
+        self._send(Message(MSG_START_GAME, {}))
 
     def send_chat(self, text: str) -> None:
         if not text:

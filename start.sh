@@ -27,9 +27,23 @@ echo "3) 同时启动服务器和客户端"
 echo "4) 运行测试"
 read -p "输入选项 (1-4): " choice
 
+# 释放占用端口（如有残留进程）
+free_port() {
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -n tcp 5555 -k 2>/dev/null || true
+    else
+        # 回退方案：使用 lsof
+        pid=$(lsof -ti tcp:5555 2>/dev/null || true)
+        if [ -n "$pid" ]; then
+            kill -9 $pid 2>/dev/null || true
+        fi
+    fi
+}
+
 case $choice in
     1)
         echo "🚀 启动服务器..."
+        free_port
         python src/server/main.py
         ;;
     2)
@@ -38,9 +52,15 @@ case $choice in
         ;;
     3)
         echo "🚀 启动服务器和客户端..."
+        free_port
         python src/server/main.py &
+        server_pid=$!
         sleep 2
         python src/client/main.py
+        # 客户端退出后，清理后台服务器
+        if ps -p "$server_pid" >/dev/null 2>&1; then
+            kill "$server_pid" 2>/dev/null || true
+        fi
         ;;
     4)
         echo "🧪 运行测试..."

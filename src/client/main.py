@@ -21,7 +21,12 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from src.shared.constants import WINDOW_HEIGHT, WINDOW_TITLE, WINDOW_WIDTH
+from src.shared.constants import (
+    WINDOW_HEIGHT, WINDOW_TITLE, WINDOW_WIDTH,
+    MSG_CREATE_ROOM, MSG_JOIN_ROOM, MSG_LIST_ROOMS, MSG_KICK_PLAYER, MSG_START_GAME, MSG_ROOM_UPDATE, MSG_LEAVE_ROOM,
+    MSG_CHAT,
+    DEFAULT_HOST, DEFAULT_PORT
+)
 from src.client.network import NetworkClient
 from src.client.ui.button import Button
 from src.client.ui.buttons_config import BUTTONS_CONFIG
@@ -52,7 +57,7 @@ BUTTON_STAGGER = 0.2  # seconds between staggered starts
 
 # App state
 APP_STATE: Dict[str, Any] = {
-    "screen": "menu",  # menu | play | settings
+    "screen": "menu",  # menu | room_list | lobby | play | settings
     "ui": None,
     "settings": {
         "player_name": "玩家",
@@ -61,8 +66,12 @@ APP_STATE: Dict[str, Any] = {
         "theme": "light",  # light | dark
         "fullscreen": False,
         "player_id": None,
+        "server_host": "127.0.0.1",
+        "server_port": 5555,
     },
     "net": None,
+    "rooms": [],  # List of room info
+    "current_room": None,  # Room info dict
     "notifications": [],  # List[Dict[str, Any]] with text, color, end_time
     # resize 防抖：在窗口调整结束后再重建 UI，减少频繁重建导致的卡顿
     "pending_resize_until": 0,
@@ -80,7 +89,7 @@ def load_settings() -> None:
             with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                for k in ("player_name", "difficulty", "volume", "theme", "fullscreen", "player_id"):
+                for k in ("player_name", "difficulty", "volume", "theme", "fullscreen", "player_id", "server_host", "server_port"):
                     if k in data:
                         APP_STATE["settings"][k] = data[k]
     except Exception as exc:
@@ -119,7 +128,10 @@ def ensure_player_identity() -> str:
 def get_network_client() -> NetworkClient:
     net = APP_STATE.get("net")
     if net is None:
-        net = NetworkClient()
+        # 从设置读取服务器地址
+        shost = APP_STATE["settings"].get("server_host", DEFAULT_HOST)
+        sport = int(APP_STATE["settings"].get("server_port", DEFAULT_PORT))
+        net = NetworkClient(host=shost, port=sport)
         APP_STATE["net"] = net
     return net
 
@@ -287,8 +299,12 @@ def create_buttons_from_config(
 
 def on_start() -> None:
     logger.info("Start pressed")
-    APP_STATE["screen"] = "play"
-    APP_STATE["ui"] = None  # 重置 UI，强制重新构建
+    APP_STATE["screen"] = "room_list"
+    APP_STATE["ui"] = None
+    # Connect and list rooms
+    net = get_network_client()
+    if net.connect(APP_STATE["settings"]["player_name"], APP_STATE["settings"].get("player_id")):
+        net.list_rooms()
 
 
 def on_settings() -> None:
@@ -511,10 +527,110 @@ def build_settings_ui(screen_size: tuple, confirm_sound: Optional[pygame.mixer.S
     }
 
 
+def build_room_list_ui(screen_size: tuple) -> Dict[str, Any]:
+    sw, sh = screen_size
+    
+    # Refresh button
+    refresh_btn = Button(
+        x=sw - 150, y=50, width=100, height=40,
+        text="刷新", bg_color=(100, 100, 200), fg_color=(255, 255, 255),
+        font_name="Microsoft YaHei", font_size=20
+    )
+    def _on_refresh():
+        net = get_network_client()
+        if net.connect(APP_STATE["settings"]["player_name"], APP_STATE["settings"].get("player_id")):
+            add_notification("已请求房间列表", color=(50, 150, 220))
+            net.list_rooms()
+        else:
+            add_notification("无法连接服务器，检查地址与端口", color=(200, 60, 60))
+    refresh_btn.on_click = _on_refresh
+
+    # Create Room button
+    create_btn = Button(
+        x=sw - 270, y=50, width=100, height=40,
+        text="创建房间", bg_color=(50, 200, 50), fg_color=(255, 255, 255),
+        font_name="Microsoft YaHei", font_size=20
+    )
+    def _on_create():
+        try:
+            logger.info("创建房间按钮被点击")
+            net = get_network_client()
+            logger.info(f"网络客户端: host={net.host}, port={net.port}, connected={net.connected}")
+            player_name = APP_STATE["settings"].get("player_name", "玩家")
+            player_id = APP_STATE["settings"].get("player_id")
+            logger.info(f"尝试连接: player_name={player_name}, player_id={player_id}")
+            if net.connect(player_name, player_id):
+                logger.info("连接成功，发送创建房间请求")
+                add_notification("正在创建房间...", color=(50, 180, 80))
+                net.create_room(f"{player_name}的房间")
+                # 立即切到大厅，等待服务器确认，提升可见性
+                APP_STATE["screen"] = "lobby"
+                APP_STATE["ui"] = None
+                add_notification("等待服务器确认进入大厅...", color=(120, 120, 220))
+            else:
+                logger.info("连接失败")
+                add_notification("无法连接服务器，检查地址与端口", color=(200, 60, 60))
+        except Exception as e:
+            logger.exception(f"创建房间出错: {e}")
+            add_notification(f"创建房间出错: {e}", color=(200, 60, 60))
+    create_btn.on_click = _on_create
+
+    # Back button
+    back_btn = Button(
+        x=50, y=50, width=100, height=40,
+        text="返回", bg_color=(200, 100, 100), fg_color=(255, 255, 255),
+        font_name="Microsoft YaHei", font_size=20
+    )
+    def _on_back():
+        APP_STATE["screen"] = "menu"
+        APP_STATE["ui"] = None
+    back_btn.on_click = _on_back
+
+    return {
+        "refresh_btn": refresh_btn,
+        "create_btn": create_btn,
+        "back_btn": back_btn,
+        "room_buttons": [] # Dynamic list of buttons for rooms
+    }
+
+
+def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
+    sw, sh = screen_size
+    
+    # Start Game button (Owner only, but we show it disabled or handle logic)
+    start_btn = Button(
+        x=sw - 150, y=50, width=100, height=40,
+        text="开始游戏", bg_color=(50, 200, 50), fg_color=(255, 255, 255),
+        font_name="Microsoft YaHei", font_size=20
+    )
+    def _on_start_game():
+        net = get_network_client()
+        net.start_game()
+    start_btn.on_click = _on_start_game
+
+    # Leave button
+    leave_btn = Button(
+        x=50, y=50, width=100, height=40,
+        text="离开房间", bg_color=(200, 100, 100), fg_color=(255, 255, 255),
+        font_name="Microsoft YaHei", font_size=20
+    )
+    def _on_leave():
+        net = get_network_client()
+        net.leave_room()
+        APP_STATE["screen"] = "room_list"
+        APP_STATE["ui"] = None
+        net.list_rooms()
+    leave_btn.on_click = _on_leave
+
+    return {
+        "start_btn": start_btn,
+        "leave_btn": leave_btn,
+        "kick_buttons": [] # Dynamic
+    }
+
+
 def process_network_messages(ui: Optional[Dict[str, Any]]) -> None:
     """从网络事件队列消费消息并更新 UI。"""
-    if not ui:
-        return
     net = APP_STATE.get("net")
     if net is None:
         return
@@ -523,11 +639,63 @@ def process_network_messages(ui: Optional[Dict[str, Any]]) -> None:
 
     for msg in net.drain_events():
         data = msg.data or {}
-        if msg.type == "chat":
+
+        # 服务器使用 ack 封装事件：统一处理
+        if msg.type == "ack":
+            event = data.get("event")
+            if event == MSG_LIST_ROOMS and data.get("ok"):
+                APP_STATE["rooms"] = data.get("rooms", [])
+                if APP_STATE["screen"] == "room_list":
+                    APP_STATE["ui"] = None
+                add_notification(f"房间列表已更新，共 {len(APP_STATE['rooms'])} 个房间", color=(50, 150, 220))
+            elif event == MSG_CREATE_ROOM and data.get("ok"):
+                APP_STATE["screen"] = "lobby"
+                APP_STATE["ui"] = None
+                add_notification("房间创建成功，已进入大厅", color=(50, 180, 80))
+            elif event == MSG_JOIN_ROOM:
+                if data.get("ok"):
+                    APP_STATE["screen"] = "lobby"
+                    APP_STATE["ui"] = None
+                    add_notification("加入房间成功，已进入大厅", color=(50, 180, 80))
+                else:
+                    add_notification(f"加入房间失败: {data.get('msg', '未知错误')}", color=(200, 50, 50))
+            elif event == MSG_LEAVE_ROOM and data.get("ok"):
+                APP_STATE["screen"] = "room_list"
+                APP_STATE["ui"] = None
+                APP_STATE["current_room"] = None
+                net.list_rooms()
+                add_notification("已离开房间，返回房间列表", color=(50, 150, 220))
+            continue
+
+        # 房间状态更新（兼容老的 room_state）
+        if msg.type == MSG_ROOM_UPDATE or msg.type == "room_state":
+            APP_STATE["current_room"] = data
+            if APP_STATE["screen"] == "lobby":
+                APP_STATE["ui"] = None
+            if data.get("status") == "playing" and APP_STATE["screen"] == "lobby":
+                APP_STATE["screen"] = "play"
+                APP_STATE["ui"] = None
+            continue
+
+        # 游戏事件
+        if msg.type == MSG_START_GAME and data.get("ok"):
+            APP_STATE["screen"] = "play"
+            APP_STATE["ui"] = None
+            continue
+
+        if msg.type == MSG_KICK_PLAYER:
+            APP_STATE["screen"] = "room_list"
+            APP_STATE["ui"] = None
+            APP_STATE["current_room"] = None
+            add_notification("你被踢出了房间", color=(200, 50, 50))
+            net.list_rooms()
+            continue
+
+        # 聊天
+        if msg.type == MSG_CHAT and ui and "chat" in ui:
             by_id = data.get("by") or data.get("by_id")
             name = data.get("by_name") or by_id or "玩家"
             if by_id and self_id and str(by_id) == str(self_id):
-                # 已在本地显示，跳过重复
                 continue
             label = "你" if by_id and self_id and str(by_id) == str(self_id) else name
             text = str(data.get("text") or "").replace("\n", " ")
@@ -535,13 +703,6 @@ def process_network_messages(ui: Optional[Dict[str, Any]]) -> None:
                 ui["chat"].add_message(label, text)
             except Exception:
                 pass
-        elif msg.type == "room_state":
-            hud = ui.get("hud")
-            if hud:
-                try:
-                    hud["round_time_left"] = data.get("time_left", hud.get("round_time_left", 60))
-                except Exception:
-                    pass
 
 
 def update_and_draw_hud(screen: pygame.Surface, ui: Dict[str, Any]) -> None:
@@ -813,6 +974,81 @@ def main() -> None:
                                                 hud["current_word"] = random.choice(words)
                                     except Exception:
                                         pass
+                    elif APP_STATE["screen"] == "room_list":
+                        ui = APP_STATE["ui"]
+                        if ui is None:
+                            ui = build_room_list_ui(screen.get_size())
+                            APP_STATE["ui"] = ui
+                            # Rebuild room buttons based on APP_STATE["rooms"]
+                            rooms = APP_STATE.get("rooms", [])
+                            room_buttons = []
+                            start_y = 150
+                            for i, r in enumerate(rooms):
+                                rid = r["room_id"]
+                                count = r["player_count"]
+                                status = r["status"]
+                                btn = Button(
+                                    x=50, y=start_y + i * 60, width=400, height=50,
+                                    text=f"房间 {rid} ({count}人) - {status}",
+                                    bg_color=(200, 200, 200), fg_color=(0, 0, 0),
+                                    font_name="Microsoft YaHei", font_size=20
+                                )
+                                def _join(rid=rid):
+                                    net = get_network_client()
+                                    if net.connect(APP_STATE["settings"]["player_name"], APP_STATE["settings"].get("player_id")):
+                                        add_notification(f"尝试加入房间 {rid}...", color=(50, 150, 220))
+                                        net.join_room(rid)
+                                    else:
+                                        add_notification("无法连接服务器，检查地址与端口", color=(200, 60, 60))
+                                btn.on_click = _join
+                                room_buttons.append(btn)
+                            ui["room_buttons"] = room_buttons
+
+                        # 事件分发：确保 ui 存在后再处理
+                        if ui:
+                            if ui.get("refresh_btn"): ui["refresh_btn"].handle_event(event)
+                            if ui.get("create_btn"): ui["create_btn"].handle_event(event)
+                            if ui.get("back_btn"): ui["back_btn"].handle_event(event)
+                            for btn in ui.get("room_buttons", []):
+                                btn.handle_event(event)
+
+                    elif APP_STATE["screen"] == "lobby":
+                        ui = APP_STATE["ui"]
+                        if ui is None:
+                            ui = build_lobby_ui(screen.get_size())
+                            APP_STATE["ui"] = ui
+                            # Rebuild kick buttons if owner
+                            current_room = APP_STATE.get("current_room") or {}
+                            players = current_room.get("players") or {}
+                            owner_id = current_room.get("owner_id")
+                            self_id = APP_STATE.get("settings", {}).get("player_id")
+                            
+                            kick_buttons = []
+                            if str(owner_id) == str(self_id):
+                                start_y = 150
+                                idx = 0
+                                for pid, pdata in players.items():
+                                    if str(pid) == str(self_id): 
+                                        idx += 1
+                                        continue
+                                    btn = Button(
+                                        x=400, y=start_y + idx * 40, width=60, height=30,
+                                        text="踢出", bg_color=(200, 50, 50), fg_color=(255, 255, 255),
+                                        font_name="Microsoft YaHei", font_size=16
+                                    )
+                                    def _kick(pid=pid):
+                                        net = get_network_client()
+                                        net.kick_player(pid)
+                                    btn.on_click = _kick
+                                    kick_buttons.append(btn)
+                                    idx += 1
+                            ui["kick_buttons"] = kick_buttons
+
+                        if ui.get("start_btn"): ui["start_btn"].handle_event(event)
+                        if ui.get("leave_btn"): ui["leave_btn"].handle_event(event)
+                        for btn in ui.get("kick_buttons", []):
+                            btn.handle_event(event)
+
                     elif APP_STATE["screen"] == "settings":
                         ui = APP_STATE["ui"]
                         if ui is None:
@@ -848,6 +1084,8 @@ def main() -> None:
                                 save_settings()
 
             if APP_STATE["screen"] == "play":
+                process_network_messages(APP_STATE.get("ui"))
+            elif APP_STATE["screen"] in ("room_list", "lobby"):
                 process_network_messages(APP_STATE.get("ui"))
 
             # 如果存在待处理的 resize 且防抖期已过，则执行一次性的重建操作
@@ -945,6 +1183,55 @@ def main() -> None:
                     ui["send_btn"].draw(screen)
                 if ui.get("back_btn"):
                     ui["back_btn"].draw(screen)
+            elif APP_STATE["screen"] == "room_list":
+                process_network_messages(APP_STATE.get("ui"))
+                ui = APP_STATE["ui"]
+                if ui:
+                    if ui.get("refresh_btn"): ui["refresh_btn"].draw(screen)
+                    if ui.get("create_btn"): ui["create_btn"].draw(screen)
+                    if ui.get("back_btn"): ui["back_btn"].draw(screen)
+                    for btn in ui.get("room_buttons", []):
+                        btn.draw(screen)
+                    
+                    # Title
+                    try:
+                        font = pygame.font.SysFont("Microsoft YaHei", 40)
+                    except:
+                        font = pygame.font.SysFont(None, 40)
+                    title = font.render("房间列表", True, (0, 0, 0))
+                    screen.blit(title, (screen.get_width() // 2 - title.get_width() // 2, 50))
+
+            elif APP_STATE["screen"] == "lobby":
+                process_network_messages(APP_STATE.get("ui"))
+                ui = APP_STATE["ui"]
+                if ui:
+                    if ui.get("start_btn"): ui["start_btn"].draw(screen)
+                    if ui.get("leave_btn"): ui["leave_btn"].draw(screen)
+                    for btn in ui.get("kick_buttons", []):
+                        btn.draw(screen)
+                    
+                    # Room Info
+                    current_room = APP_STATE.get("current_room", {})
+                    rid = current_room.get("room_id", "Unknown")
+                    try:
+                        font = pygame.font.SysFont("Microsoft YaHei", 30)
+                        font_p = pygame.font.SysFont("Microsoft YaHei", 24)
+                    except:
+                        font = pygame.font.SysFont(None, 30)
+                        font_p = pygame.font.SysFont(None, 24)
+                        
+                    title = font.render(f"房间: {rid}", True, (0, 0, 0))
+                    screen.blit(title, (screen.get_width() // 2 - title.get_width() // 2, 50))
+                    
+                    # Player List
+                    players = current_room.get("players", {})
+                    start_y = 150
+                    idx = 0
+                    for pid, pdata in players.items():
+                        name = pdata.get("name", "Unknown")
+                        txt = font_p.render(f"{name}", True, (0, 0, 0))
+                        screen.blit(txt, (100, start_y + idx * 40))
+                        idx += 1
             elif APP_STATE["screen"] == "settings":
                 ui = APP_STATE["ui"]
                 if ui is None:

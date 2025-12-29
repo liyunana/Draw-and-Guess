@@ -10,6 +10,7 @@ class GameRoom:
     def __init__(self, room_id: str):
         self.room_id = room_id
         self.players: Dict[str, Dict[str, any]] = {}  # player_id -> {name, score, is_drawer}
+        self.owner_id: Optional[str] = None
         self.status = "waiting"  # waiting, playing, ended
         self.current_word: Optional[str] = None
         self.drawer_id: Optional[str] = None
@@ -22,6 +23,11 @@ class GameRoom:
         """添加玩家到房间"""
         if player_id in self.players:
             return True
+        
+        # 如果是第一个玩家，设为房主
+        if not self.players:
+            self.owner_id = player_id
+
         self.players[player_id] = {
             "name": player_name,
             "score": 0,
@@ -33,6 +39,14 @@ class GameRoom:
         """从房间移除玩家"""
         if player_id in self.players:
             del self.players[player_id]
+            
+            # 如果房主离开，移交房主权限
+            if self.owner_id == player_id:
+                if self.players:
+                    self.owner_id = next(iter(self.players))
+                else:
+                    self.owner_id = None
+
             # 如果绘图者离开了，可能需要结束当前回合或重新分配
             if self.drawer_id == player_id:
                 self.drawer_id = None
@@ -43,11 +57,13 @@ class GameRoom:
         """获取房间的公开状态（用于广播给所有玩家）"""
         return {
             "room_id": self.room_id,
+            "owner_id": self.owner_id,
             "status": self.status,
             "players": self.players,
             "drawer_id": self.drawer_id,
             "round_number": self.round_number,
             "current_word": self.current_word if self.status == "playing" else None, # 简化：实际应只发给画手
+
         }
 
     def start_game(self) -> bool:

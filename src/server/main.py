@@ -6,6 +6,7 @@
 
 import logging
 import sys
+import os
 from pathlib import Path
 
 # 添加项目根目录到路径
@@ -26,13 +27,20 @@ logger = logging.getLogger(__name__)
 def main():
     """启动服务器主函数"""
     logger.info("=" * 50)
+    # 支持通过环境变量覆盖主机与端口
+    host = os.environ.get("HOST", DEFAULT_HOST)
+    try:
+        port = int(os.environ.get("PORT", DEFAULT_PORT))
+    except Exception:
+        port = DEFAULT_PORT
+
     logger.info("Draw & Guess 游戏服务器启动中...")
-    logger.info(f"监听地址: {DEFAULT_HOST}:{DEFAULT_PORT}")
+    logger.info(f"监听地址: {host}:{port}")
     logger.info("=" * 50)
 
     try:
         from src.server.network import NetworkServer
-        server = NetworkServer(DEFAULT_HOST, DEFAULT_PORT)
+        server = NetworkServer(host, port)
         server.start()
         
         logger.info("服务器运行中，按 Ctrl+C 停止")
