@@ -18,6 +18,8 @@ class GameRoom:
         self.max_rounds = 5
         self.round_start_time = 0
         self.round_duration = 60  # seconds
+        self.drawer_order: List[str] = []  # 随机生成的绘画顺序（player_id列表）
+        self.current_drawer_index = 0  # 当前绘者在顺序中的索引
 
     def add_player(self, player_id: str, player_name: str) -> bool:
         """添加玩家到房间"""
@@ -62,34 +64,46 @@ class GameRoom:
             "players": self.players,
             "drawer_id": self.drawer_id,
             "round_number": self.round_number,
-            "current_word": self.current_word if self.status == "playing" else None, # 简化：实际应只发给画手
-
+            "max_rounds": self.max_rounds,
+            "current_word": self.current_word if self.status == "playing" else None,  # 简化：实际应只发给画手
+            "drawer_order": self.drawer_order,  # 绘画顺序列表
+            "current_drawer_index": self.current_drawer_index,  # 当前轮次索引
         }
 
     def start_game(self) -> bool:
-        """开始游戏"""
+        """开始游戏 - 生成随机绘画顺序"""
         if len(self.players) < 1: # 调试时允许 1 人
             return False
         self.status = "playing"
         self.round_number = 0
+        self.current_drawer_index = 0
+        
+        # 生成随机绘画顺序（允许重复，使每个玩家都有机会绘画max_rounds次）
+        player_ids = list(self.players.keys())
+        self.drawer_order = []
+        for _ in range(self.max_rounds):
+            self.drawer_order.extend(random.sample(player_ids, len(player_ids)))
+        
         for p in self.players.values():
             p["score"] = 0
         return self.next_round()
 
     def next_round(self) -> bool:
-        """进入下一回合"""
+        """进入下一回合 - 按照预生成的顺序轮流"""
         if self.round_number >= self.max_rounds:
             self.end_game()
             return False
 
         self.round_number += 1
-        player_ids = list(self.players.keys())
-        if not player_ids:
-            self.status = "waiting"
+        
+        # 从预生成的顺序中获取当前绘者
+        if self.current_drawer_index < len(self.drawer_order):
+            self.drawer_id = self.drawer_order[self.current_drawer_index]
+            self.current_drawer_index += 1
+        else:
+            self.end_game()
             return False
-
-        # 轮流当画手
-        self.drawer_id = player_ids[(self.round_number - 1) % len(player_ids)]
+        
         for pid, p in self.players.items():
             p["is_drawer"] = (pid == self.drawer_id)
 

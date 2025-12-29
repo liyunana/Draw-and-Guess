@@ -59,4 +59,5 @@ MSG_CHAT = "chat"
 MSG_START_GAME = "start_game"
 MSG_END_GAME = "end_game"
 MSG_NEXT_ROUND = "next_round"
+MSG_ROUND_START = "round_start"  # 新增：通知轮次开始和当前绘者
 MSG_ERROR = "error"

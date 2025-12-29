@@ -240,29 +240,51 @@ class NetworkServer:
 					self._send(sess, Message("error", {"msg": "Permission denied"}))
 
 		elif t == MSG_START_GAME:
-			# 启动游戏
+			# 启动游戏 - 生成随机绘画顺序
 			if sess.room_id and sess.room_id in self.rooms:
 				room = self.rooms[sess.room_id]
 				if room.owner_id == sess.player_id:
-					# 检查人数等条件 (这里简化，直接开始)
-					# ok = room.start_game() # 假设 GameRoom 有 start_game 方法
-					# 暂时手动设置状态
-					room.status = "playing"
-					ok = True
+					# 调用 start_game 生成随机顺序并进入第一轮
+					ok = room.start_game()
 					
-					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
-					self.broadcast_room(sess.room_id, Message("event", {"type": MSG_START_GAME, "ok": ok}))
+					if ok:
+						# 广播游戏开始和房间状态更新
+						self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
+						# 发送特定的游戏开始事件，包含绘画顺序信息
+						self.broadcast_room(sess.room_id, Message("event", {
+							"type": MSG_START_GAME, 
+							"ok": True,
+							"drawer_order": room.drawer_order,
+							"drawer_id": room.drawer_id,
+							"round_number": room.round_number
+						}))
+					else:
+						self._send(sess, Message("error", {"msg": "Cannot start game with no players"}))
 				else:
 					self._send(sess, Message("error", {"msg": "Permission denied"}))
+			else:
+				self._send(sess, Message("error", {"msg": "Room not found"}))
 
 		elif t == MSG_NEXT_ROUND:
+			# 进入下一回合
 			if sess.room_id and sess.room_id in self.rooms:
 				room = self.rooms[sess.room_id]
-				# ok = room.next_round()
-				# 暂时手动
-				ok = True
-				self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
-				self.broadcast_room(sess.room_id, Message("event", {"type": MSG_NEXT_ROUND, "ok": ok}))
+				ok = room.next_round()
+				
+				if ok:
+					# 广播房间状态更新
+					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
+					# 发送轮次开始事件
+					self.broadcast_room(sess.room_id, Message("event", {
+						"type": MSG_NEXT_ROUND,
+						"ok": True,
+						"drawer_id": room.drawer_id,
+						"round_number": room.round_number
+					}))
+				else:
+					# 游戏结束
+					self.broadcast_room(sess.room_id, Message("event", {"type": MSG_END_GAME, "ok": True}))
+					self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
 
 		elif t == MSG_END_GAME:
 			if sess.room_id and sess.room_id in self.rooms:
