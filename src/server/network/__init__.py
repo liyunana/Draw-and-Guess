@@ -163,7 +163,7 @@ class NetworkServer:
 	def _handle_raw_message(self, sess: ClientSession, raw: bytes) -> None:
 		"""原始字节消息 -> JSON -> Message 并路由"""
 		try:
-			text = raw.decode("utf-8", errors="ignore")
+			text = raw.decode("utf-8", errors="replace")
 			msg = Message.from_json(text)
 		except Exception:
 			# // 非法消息，忽略

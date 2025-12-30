@@ -100,7 +100,16 @@ class ChatBuffer:
 	def __init__(self, capacity: int = 50, font: Optional[pygame.font.Font] = None):
 		self.capacity = max(10, capacity)
 		self._messages: List[Tuple[str, str, float]] = []  # (by, text, ts)
-		self._font = font or pygame.font.SysFont(None, 18)
+		if font is None:
+			# Use Chinese font by default
+			try:
+				font = pygame.font.SysFont("Microsoft YaHei", 18)
+			except Exception:
+				try:
+					font = pygame.font.SysFont("SimHei", 18)
+				except Exception:
+					font = pygame.font.SysFont(None, 18)
+		self._font = font
 
 	def add(self, by: str, text: str) -> None:
 		# // 追加消息并按容量裁剪
@@ -126,8 +135,26 @@ class HudRenderer:
 	"""HUD 渲染器：记分板与计时器"""
 
 	def __init__(self, title_font: Optional[pygame.font.Font] = None, item_font: Optional[pygame.font.Font] = None):
-		self._title_font = title_font or pygame.font.SysFont(None, 24)
-		self._item_font = item_font or pygame.font.SysFont(None, 20)
+		if title_font is None:
+			# Use Chinese font by default
+			try:
+				title_font = pygame.font.SysFont("Microsoft YaHei", 24)
+			except Exception:
+				try:
+					title_font = pygame.font.SysFont("SimHei", 24)
+				except Exception:
+					title_font = pygame.font.SysFont(None, 24)
+		if item_font is None:
+			# Use Chinese font by default
+			try:
+				item_font = pygame.font.SysFont("Microsoft YaHei", 20)
+			except Exception:
+				try:
+					item_font = pygame.font.SysFont("SimHei", 20)
+				except Exception:
+					item_font = pygame.font.SysFont(None, 20)
+		self._title_font = title_font
+		self._item_font = item_font
 
 	def render(self, surface: pygame.Surface, room_state: Dict[str, Any], rect: pygame.Rect) -> None:
 		# // 标题与基本信息

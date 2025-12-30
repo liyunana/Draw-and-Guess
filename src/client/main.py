@@ -885,7 +885,7 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
     pad = 20
     chat_h = max(140, int(sh * 0.22))
     chat_rect = pygame.Rect(pad, sh - chat_h - pad, sw - pad * 2, chat_h)
-    chat = ChatPanel(chat_rect)
+    chat = ChatPanel(chat_rect, font_size=18, font_name="Microsoft YaHei")
     
     # 聊天输入框
     chat_input_w = max(240, chat_rect.width - 100)

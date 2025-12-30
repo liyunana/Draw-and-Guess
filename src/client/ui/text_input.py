@@ -45,14 +45,19 @@ class TextInput:
         self.comp_start: int = 0
         self.comp_length: int = 0
         
-        # 尝试加载指定字体，失败则使用默认字体
+        # 尝试加载指定字体，失败则使用中文字体
         try:
-            if font_name:
-                self.font = pygame.font.SysFont(font_name, font_size)
-            else:
-                self.font = pygame.font.SysFont(None, font_size)
+            # 如果没有指定字体，默认使用 Microsoft YaHei（Windows 中文字体）
+            if font_name is None:
+                font_name = "Microsoft YaHei"
+            self.font = pygame.font.SysFont(font_name, font_size)
         except Exception:
-            self.font = pygame.font.SysFont(None, font_size)
+            # 如果 Microsoft YaHei 失败，尝试其他中文字体
+            try:
+                self.font = pygame.font.SysFont("SimHei", font_size)
+            except Exception:
+                # 最后的备选方案
+                self.font = pygame.font.SysFont(None, font_size)
         
         # 提交回调函数：在用户按 Enter 提交时触发
         # 回调参数为提交的文本内容

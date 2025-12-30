@@ -4,6 +4,6 @@
   "volume": 7,
   "theme": "light",
   "fullscreen": false,
-  "server_host": "81.68.144.16",
+  "server_host": "198.18.0.1",
   "server_port": 5555
 }

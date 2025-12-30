@@ -24,7 +24,7 @@ class Message:
 
     def to_json(self) -> str:
         """将消息转换为 JSON 字符串"""
-        return json.dumps({"type": self.type, "data": self.data})
+        return json.dumps({"type": self.type, "data": self.data}, ensure_ascii=False)
 
     @classmethod
     def from_json(cls, json_str: str) -> "Message":

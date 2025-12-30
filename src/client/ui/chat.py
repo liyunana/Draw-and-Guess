@@ -20,15 +20,23 @@ class ChatPanel:
         Args:
             rect: 聊天面板的矩形区域
             font_size: 字体大小
-            font_name: 字体名称（如 "Microsoft YaHei"），默认系统字体
+            font_name: 字体名称（如 "Microsoft YaHei"），默认使用 Microsoft YaHei 支持中文
         """
         self.rect = rect
 
-        # 尝试加载指定字体，失败则使用默认字体
+        # 尝试加载指定字体，失败则使用默认的中文字体
         try:
-            self.font = pygame.font.SysFont(font_name or None, font_size)
+            # 如果没有指定字体，默认使用 Microsoft YaHei（Windows 中文字体）
+            if font_name is None:
+                font_name = "Microsoft YaHei"
+            self.font = pygame.font.SysFont(font_name, font_size)
         except Exception:
-            self.font = pygame.font.SysFont(None, font_size)
+            # 如果 Microsoft YaHei 失败，尝试其他中文字体
+            try:
+                self.font = pygame.font.SysFont("SimHei", font_size)
+            except Exception:
+                # 最后的备选方案
+                self.font = pygame.font.SysFont(None, font_size)
 
         # 消息列表：每个消息是 (用户名, 文本) 元组
         self.messages: List[Tuple[str, str]] = []  # (user, text)

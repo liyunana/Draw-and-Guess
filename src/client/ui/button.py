@@ -82,8 +82,16 @@ class Button:
                 else:
                     self.font = pygame.font.SysFont(font_name, font_size)
             else:
-                # None -> use system default font
-                self.font = pygame.font.SysFont(None, font_size)
+                # No font specified, use Microsoft YaHei for Chinese support
+                try:
+                    self.font = pygame.font.SysFont("Microsoft YaHei", font_size)
+                except Exception:
+                    # Fallback to SimHei if Microsoft YaHei is not available
+                    try:
+                        self.font = pygame.font.SysFont("SimHei", font_size)
+                    except Exception:
+                        # Last resort: system default
+                        self.font = pygame.font.SysFont(None, font_size)
         except Exception:
             self.font = pygame.font.Font(None, font_size)
 

@@ -110,7 +110,7 @@ class ClientNetwork:
 
 	def _handle_raw(self, raw: bytes) -> None:
 		try:
-			text = raw.decode("utf-8", errors="ignore")
+			text = raw.decode("utf-8", errors="replace")
 			msg = Message.from_json(text)
 		except Exception:
 			return

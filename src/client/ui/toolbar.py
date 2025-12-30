@@ -30,9 +30,17 @@ class Toolbar:
         self.on_mode: Optional[Callable[[str], None]] = None
         self.on_clear: Optional[Callable[[], None]] = None
         try:
-            self.font = pygame.font.SysFont(font_name or None, 18)
+            # Use Chinese font if no font specified
+            if font_name is None:
+                font_name = "Microsoft YaHei"
+            self.font = pygame.font.SysFont(font_name, 18)
         except Exception:
-            self.font = pygame.font.SysFont(None, 18)
+            # Fallback to SimHei
+            try:
+                self.font = pygame.font.SysFont("SimHei", 18)
+            except Exception:
+                # Last resort
+                self.font = pygame.font.SysFont(None, 18)
         self._current_mode = "draw"
         # 当前选中的颜色和笔刷索引（用于高亮显示）
         self.selected_color_index: Optional[int] = None
