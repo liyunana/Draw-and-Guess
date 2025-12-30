@@ -434,7 +434,7 @@ class NetworkServer:
                     # 全局播报：游戏开始，XXX是绘画者
                     drawer_name = room.players[room.drawer_id]["name"]
                     self.broadcast_room(sess.room_id, Message("event", {
-                        "type": MSG_START_GAME, 
+                        "type": MSG_START_GAME,
                         "ok": True,
                         "drawer_id": room.drawer_id,
                         "drawer_name": drawer_name,
@@ -487,7 +487,7 @@ class NetworkServer:
                         room.drawer_id = player_ids[next_index]
                         room.current_word = room.get_next_word()
                         room.round_start_time = time.time()
-                        
+
                         self.broadcast_room(sess.room_id, Message(MSG_ROOM_UPDATE, room.get_public_state()))
                         drawer_name = room.players[room.drawer_id]["name"]
                         self.broadcast_room(sess.room_id, Message("event", {
@@ -507,7 +507,7 @@ class NetworkServer:
             if sess.room_id:
                 room = self.rooms.get(sess.room_id)
                 text = str(data.get("text") or "")
-                
+
                 # 如果在游戏中，检查是否猜对
                 if room and room.status == "playing" and room.current_word:
                     # 不是绘画者才可以猜
@@ -525,7 +525,7 @@ class NetworkServer:
                             }))
                             # 不发送猜对的消息到聊天框（避免泄露答案）
                             return
-                
+
                 # 正常聊天消息
                 payload = {
                     "by": sess.player_id,
