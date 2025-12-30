@@ -488,14 +488,15 @@ def build_play_ui(screen_size: tuple) -> Dict[str, Any]:
     sw, sh = screen_size
     pad = 16
     sidebar_w = 260
+    scoreboard_w = 180  # 左侧预留积分榜区域宽度
     chat_h = 140
     input_h = 40
     topbar_h = 44
 
     canvas_rect = pygame.Rect(
-        pad,
+        pad + scoreboard_w + pad,
         pad + topbar_h,
-        sw - sidebar_w - pad * 3,
+        sw - sidebar_w - scoreboard_w - pad * 4,
         sh - chat_h - input_h - pad * 4 - topbar_h,
     )
     toolbar_rect = pygame.Rect(canvas_rect.right + pad, pad + topbar_h, sidebar_w, canvas_rect.height)
@@ -915,6 +916,21 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
         net.list_rooms()
     leave_btn.on_click = _on_leave
 
+    # 房主设置折叠状态（使用全局 APP_STATE 存储，避免重建 UI 时丢失）
+    APP_STATE.setdefault("_lobby_settings_collapsed", False)
+
+    # 房主设置折叠/展开按钮（放在右上角靠近“开始游戏”按钮）
+    settings_toggle_btn = Button(
+        x=sw - 320, y=50, width=150, height=36,
+        text="收起房主设置", bg_color=(180, 180, 200), fg_color=(40, 40, 40),
+        font_name="Microsoft YaHei", font_size=18,
+    )
+
+    def _on_toggle_settings():
+        APP_STATE["_lobby_settings_collapsed"] = not APP_STATE.get("_lobby_settings_collapsed", False)
+
+    settings_toggle_btn.on_click = _on_toggle_settings
+
     # 游戏设置输入框（仅房主可见）
     # 默认值优先从当前房间状态读取，方便房主看到真实配置
     current_room = APP_STATE.get("current_room") or {}
@@ -927,8 +943,25 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
     except Exception:
         default_round_time = "60"
 
+    # 聊天区域高度（与下方聊天面板保持一致），用于避免房主设置面板遮挡聊天
+    pad = 20
+    chat_h = max(140, int(sh * 0.22))
+    chat_top = sh - chat_h - pad
+
+    # 将设置面板整体移动到右侧竖直排列，减小输入框宽度，避免遮挡中间区域文字
+    # 输入框稍窄一些，并保证整个面板始终贴近屏幕右侧
+    input_w = 100
+    panel_x = max(int(sw * 0.65), sw - (input_w + 460))
+    right_margin = 40
+    panel_y = 140
+    row_h = 35
+    row_gap = 18
+
+    # 三个输入框统一右对齐到屏幕右侧（right_margin 内），让房主设置整体“靠右排列”
+    input_x = sw - right_margin - input_w
+
     rounds_input = TextInput(
-        rect=pygame.Rect(sw // 2 - 250, sh - 200, 120, 35),
+        rect=pygame.Rect(input_x, panel_y + 0 * (row_h + row_gap), input_w, row_h),
         font_name="Microsoft YaHei",
         font_size=18,
         placeholder=default_rounds,
@@ -936,7 +969,7 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
     rounds_input.text = default_rounds
 
     time_input = TextInput(
-        rect=pygame.Rect(sw // 2 - 50, sh - 200, 120, 35),
+        rect=pygame.Rect(input_x, panel_y + 1 * (row_h + row_gap), input_w, row_h),
         font_name="Microsoft YaHei",
         font_size=18,
         placeholder=default_round_time,
@@ -944,16 +977,16 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
     time_input.text = default_round_time
 
     rest_input = TextInput(
-        rect=pygame.Rect(sw // 2 + 150, sh - 200, 120, 35),
+        rect=pygame.Rect(input_x, panel_y + 2 * (row_h + row_gap), input_w, row_h),
         font_name="Microsoft YaHei",
         font_size=18,
         placeholder="10"
     )
     rest_input.text = "10"
 
-    # 应用设置按钮
+    # 应用设置按钮（宽度与输入框接近，后续在绘制阶段按面板居中）
     apply_btn = Button(
-        x=sw // 2 - 60, y=sh - 150, width=120, height=35,
+        x=panel_x + 40, y=panel_y + 3 * (row_h + row_gap) + 10, width=220, height=35,
         text="应用设置", bg_color=(80, 150, 200), fg_color=(255, 255, 255),
         font_name="Microsoft YaHei", font_size=18
     )
@@ -964,14 +997,36 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
             rest_time = int(rest_input.text or "10")
             net = get_network_client()
             net.set_game_config(max_rounds, round_time, rest_time)
+            # 本地立即更新当前房间配置，避免在服务器广播前界面仍显示旧值
+            try:
+                current_room = APP_STATE.get("current_room") or {}
+                current_room["max_rounds"] = max_rounds
+                current_room["round_duration"] = round_time
+                APP_STATE["current_room"] = current_room
+            except Exception:
+                pass
             add_notification(f"设置已更新: {max_rounds}轮, {round_time}秒/轮, {rest_time}秒休息", color=(50, 180, 80))
         except ValueError:
             add_notification("请输入有效的数字", color=(200, 60, 60))
     apply_btn.on_click = _on_apply_settings
 
+    # 根据聊天区域顶部位置，必要时整体上移房主设置面板，避免遮挡聊天框
+    panel_top = min(rounds_input.rect.y, time_input.rect.y, rest_input.rect.y) - 40
+    panel_bottom = apply_btn.rect.bottom + 20
+    if panel_bottom > chat_top - 10:
+        # 需要上移的距离
+        shift = panel_bottom - (chat_top - 10)
+        # 避免移得过高压住房间标题，这里限制最小顶部高度
+        min_top = 140  # 与初始 panel_y 一致
+        if panel_top - shift < min_top:
+            shift = max(0, panel_top - min_top)
+        if shift > 0:
+            rounds_input.rect.y -= shift
+            time_input.rect.y -= shift
+            rest_input.rect.y -= shift
+            apply_btn.rect.y -= shift
+
     # 聊天面板（放置在大厅底部，横向铺满，避免遮挡玩家列表）
-    pad = 20
-    chat_h = max(140, int(sh * 0.22))
     chat_rect = pygame.Rect(pad, sh - chat_h - pad, sw - pad * 2, chat_h)
     chat = ChatPanel(chat_rect, font_size=18, font_name="Microsoft YaHei")
 
@@ -1007,6 +1062,7 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
     return {
         "start_btn": start_btn,
         "leave_btn": leave_btn,
+        "settings_toggle_btn": settings_toggle_btn,
         "kick_buttons": [],  # Dynamic
         "rounds_input": rounds_input,
         "time_input": time_input,
@@ -1620,12 +1676,16 @@ def main() -> None:
                         # 开始游戏按钮对所有人可点击，服务器侧仍做权限校验
                         if ui.get("start_btn"): ui["start_btn"].handle_event(event)
 
-                        # 仅房主可编辑游戏参数
+                        # 房主设置折叠/展开按钮
                         current_room = APP_STATE.get("current_room") or {}
                         owner_id = current_room.get("owner_id")
                         self_id = APP_STATE.get("settings", {}).get("player_id")
                         is_owner = owner_id and self_id and str(owner_id) == str(self_id)
-                        if is_owner:
+                        if is_owner and ui.get("settings_toggle_btn"):
+                            ui["settings_toggle_btn"].handle_event(event)
+
+                        # 仅房主可编辑游戏参数
+                        if is_owner and not APP_STATE.get("_lobby_settings_collapsed", False):
                             if ui.get("rounds_input"): ui["rounds_input"].handle_event(event)
                             if ui.get("time_input"): ui["time_input"].handle_event(event)
                             if ui.get("rest_input"): ui["rest_input"].handle_event(event)
@@ -1864,47 +1924,82 @@ def main() -> None:
                 if ui.get("back_btn"):
                     ui["back_btn"].draw(screen)
 
-                # 显示玩家得分排行（右侧）
+                # 显示玩家得分排行：使用画布左侧预留区域，避免遮挡画笔工具栏
                 current_room = APP_STATE.get("current_room") or {}
                 players = current_room.get("players", {})
-                if players:
+                if players and ui.get("canvas"):
                     try:
                         font_score = pygame.font.SysFont("Microsoft YaHei", 20)
                     except:
                         font_score = pygame.font.SysFont(None, 20)
 
-                    score_x = sw - 220
-                    score_y = 100
+                    canvas_rect = ui["canvas"].rect
+                    # 画布左侧预留约 180 像素作为积分榜区域，这里整体贴着左侧边缘
+                    score_x = max(10, canvas_rect.x - 180)
+                    score_y = canvas_rect.y + 10
 
                     # 标题
                     title = font_score.render("得分榜", True, (60, 60, 60))
-                    screen.blit(title, (score_x + 50, score_y))
+                    screen.blit(title, (score_x + 40, score_y))
 
                     # 排序玩家
                     sorted_players = sorted(players.items(), key=lambda x: x[1].get("score", 0), reverse=True)
 
-                    for i, (pid, pdata) in enumerate(sorted_players):
+                    # 当前绘制起始 y 位置（支持根据内容高度动态累积）
+                    row_y = score_y + 40
+                    max_name_width = 120  # 名字区域最大宽度，超出时自动换行
+
+                    for pid, pdata in sorted_players:
                         name = pdata.get("name", "玩家")
                         score = pdata.get("score", 0)
                         drawer_id = current_room.get("drawer_id")
                         is_drawer = (pid == drawer_id)
 
-                        y_pos = score_y + 40 + i * 30
+                        # 名字前缀：标记当前绘画者
+                        prefix = "正在创作 " if is_drawer else ""
+                        full_name = f"{prefix}{name}"
 
-                        # 背景
-                        bg_rect = pygame.Rect(score_x, y_pos - 5, 180, 28)
+                        # 简单按字符宽度自动换行，保证文本不延伸到画板上
+                        lines = []
+                        current_line = ""
+                        for ch in full_name:
+                            test = current_line + ch
+                            if not current_line:
+                                current_line = ch
+                                continue
+                            test_surf = font_score.render(test, True, (40, 40, 40))
+                            if test_surf.get_width() <= max_name_width:
+                                current_line = test
+                            else:
+                                lines.append(current_line)
+                                current_line = ch
+                        if current_line:
+                            lines.append(current_line)
+                        if not lines:
+                            lines = [full_name]
+
+                        line_height = font_score.get_height()
+                        text_h = line_height * len(lines)
+
+                        # 背景（高度根据行数自适应，完全在画布左侧的单独区域内）
+                        bg_height = max(28, text_h + 6)
+                        bg_rect = pygame.Rect(score_x, row_y - 5, 160, bg_height)
                         color = (255, 250, 200) if is_drawer else (245, 245, 245)
                         pygame.draw.rect(screen, color, bg_rect)
                         pygame.draw.rect(screen, (200, 200, 200), bg_rect, 1)
 
-                        # 名字
-                        prefix = "🎨 " if is_drawer else ""
-                        name_txt = font_score.render(f"{prefix}{name}", True, (40, 40, 40))
-                        screen.blit(name_txt, (score_x + 5, y_pos))
+                        # 名字多行绘制
+                        for li, line in enumerate(lines):
+                            line_surf = font_score.render(line, True, (40, 40, 40))
+                            screen.blit(line_surf, (score_x + 5, row_y + li * line_height))
 
-                        # 分数
+                        # 分数垂直居中绘制在背景右侧
                         score_txt = font_score.render(f"{score}", True, (40, 40, 40))
-                        screen.blit(score_txt, (score_x + 140, y_pos))
+                        score_y_center = row_y + (bg_height - score_txt.get_height()) // 2
+                        screen.blit(score_txt, (score_x + 120, score_y_center))
+
+                        # 为下一名玩家向下偏移，预留少量行间距
+                        row_y += bg_height + 4
 
                 # 移除“下一轮”按钮显示
             elif APP_STATE["screen"] == "room_list":
@@ -2044,29 +2139,78 @@ def main() -> None:
                         idx += 1
 
                     # 游戏参数设置（仅房主）
-                    if is_owner:
-                        settings_y = sh - 250
+                    # 房主设置面板：放到画面右侧竖直排列，并支持折叠
+                    collapsed = APP_STATE.get("_lobby_settings_collapsed", False)
+                    if ui.get("settings_toggle_btn") and is_owner:
+                        # 根据当前折叠状态更新按钮文字
+                        ui["settings_toggle_btn"].text = "展开房主设置" if collapsed else "收起房主设置"
+                        ui["settings_toggle_btn"].draw(screen)
+
+                    if is_owner and not collapsed:
                         try:
                             font_s = pygame.font.SysFont("Microsoft YaHei", 20)
                         except:
                             font_s = pygame.font.SysFont(None, 20)
 
-                        txt1 = font_s.render("游戏设置（仅房主）:", True, (60, 60, 60))
-                        screen.blit(txt1, (sw // 2 - 250, settings_y - 50))
+                        # 使用输入框的位置来对齐文字和背景面板
+                        rounds_rect = ui["rounds_input"].rect
+                        time_rect = ui["time_input"].rect
+                        rest_rect = ui["rest_input"].rect
 
-                        txt2 = font_s.render("轮数:", True, (60, 60, 60))
-                        screen.blit(txt2, (sw // 2 - 250, settings_y - 20))
+                        # 预先计算标签最大宽度，用于为标签预留足够的左侧空间
+                        label_texts = ["轮数", "时间/轮", "休息"]
+                        max_label_w = 0
+                        for text in label_texts:
+                            surf = font_s.render(text, True, (60, 60, 60))
+                            if surf.get_width() > max_label_w:
+                                max_label_w = surf.get_width()
+
+                        # 面板整体区域（包含标题、三个输入框和按钮）
+                        panel_left = min(rounds_rect.x, time_rect.x, rest_rect.x) - (max_label_w + 30)
+                        panel_top = min(rounds_rect.y, time_rect.y, rest_rect.y) - 40
+                        panel_right = max(
+                            rounds_rect.right,
+                            time_rect.right,
+                            rest_rect.right,
+                            ui["apply_btn"].rect.right,
+                        ) + 20
+                        panel_bottom = ui["apply_btn"].rect.bottom + 20
+                        panel_rect = pygame.Rect(
+                            panel_left,
+                            panel_top,
+                            panel_right - panel_left,
+                            panel_bottom - panel_top,
+                        )
+
+                        # 背景与边框
+                        pygame.draw.rect(screen, (245, 245, 250), panel_rect)
+                        pygame.draw.rect(screen, (200, 200, 220), panel_rect, 1)
+
+                        # 标题
+                        title_txt = font_s.render("房主游戏设置", True, (60, 60, 80))
+                        screen.blit(title_txt, (panel_left + 10, panel_top + 10))
+
+                        # 标签与输入框：根据 TextInput 位置对齐
+                        def _draw_label(label: str, target_rect: pygame.Rect) -> None:
+                            # 标签与对应输入框右对齐到同一“行”，并整体位于输入框左侧，不会被盖住
+                            label_surf = font_s.render(label, True, (60, 60, 60))
+                            ly = target_rect.y + (target_rect.height - label_surf.get_height()) // 2
+                            lx = target_rect.x - label_surf.get_width() - 10
+                            screen.blit(label_surf, (lx, ly))
+
+                        _draw_label("轮数", rounds_rect)
+                        _draw_label("时间/轮", time_rect)
+                        _draw_label("休息", rest_rect)
+
                         ui["rounds_input"].draw(screen)
-
-                        txt3 = font_s.render("时间/轮:", True, (60, 60, 60))
-                        screen.blit(txt3, (sw // 2 - 50, settings_y - 20))
                         ui["time_input"].draw(screen)
-
-                        txt4 = font_s.render("休息:", True, (60, 60, 60))
-                        screen.blit(txt4, (sw // 2 + 150, settings_y - 20))
                         ui["rest_input"].draw(screen)
-
-                        ui["apply_btn"].draw(screen)
+                        # 让“应用设置”按钮在设置面板内水平居中，并同步更新文字位置
+                        apply_btn = ui["apply_btn"]
+                        new_x = panel_left + (panel_rect.width - apply_btn.rect.width) // 2
+                        if apply_btn.rect.x != new_x:
+                            apply_btn.set_position(new_x, apply_btn.rect.y)
+                        apply_btn.draw(screen)
 
                     # 聊天面板
                     if ui.get("chat"):
