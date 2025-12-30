@@ -11,6 +11,7 @@ import socket
 import threading
 import json
 import traceback
+import time
 from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class NetworkServer:
 		self._running = threading.Event()
 		self.sessions: Dict[int, ClientSession] = {}
 		self.rooms: Dict[str, GameRoom] = {}
+		self._tick_thread: Optional[threading.Thread] = None
 
 	def _rooms_snapshot(self) -> list:
 		"""构建当前房间的简要列表快照。"""
@@ -101,6 +103,9 @@ class NetworkServer:
 		self._running.set()
 		self._accept_thread = threading.Thread(target=self._accept_loop, name="accept-loop", daemon=True)
 		self._accept_thread.start()
+		# 启动房间状态定时广播线程，用于统一倒计时（服务器统一计算剩余时间）
+		self._tick_thread = threading.Thread(target=self._tick_loop, name="room-tick", daemon=True)
+		self._tick_thread.start()
 
 	def stop(self) -> None:
 		"""停止服务器并关闭所有会话"""
@@ -158,6 +163,21 @@ class NetworkServer:
 			traceback.print_exc()
 		finally:
 			self._on_disconnect(sess)
+
+	def _tick_loop(self) -> None:
+		"""定时广播正在进行中的房间状态，由服务器统一计算剩余时间。
+
+		这样所有客户端都以服务器为准更新倒计时，避免各自本地计时产生偏差。
+		"""
+		while self._running.is_set():
+			try:
+				for rid, room in list(self.rooms.items()):
+					if room.status == "playing":
+						self.broadcast_room_state(rid)
+			except Exception:
+				traceback.print_exc()
+			# 每秒钟广播一次即可保证较平滑的倒计时显示
+			time.sleep(1.0)
 
 	# 消息处理
 	def _handle_raw_message(self, sess: ClientSession, raw: bytes) -> None:
@@ -247,7 +267,8 @@ class NetworkServer:
 						if isinstance(round_time, int) and round_time > 0:
 							# 模块化服务器使用 round_duration
 							room.round_duration = round_time
-						# rest_time 暂未在此实现，忽略或未来支持
+						if isinstance(rest_time, int) and rest_time >= 0:
+							room.rest_time = rest_time
 						self._send(sess, Message("ack", {"ok": True, "event": MSG_SET_GAME_CONFIG}))
 						self.broadcast_room_state(sess.room_id)
 					except Exception:

@@ -11,7 +11,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 # ============== 配置 ==============
-DEFAULT_HOST = "127.0.0.1"
+DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 5555
 BUFFER_SIZE = 4096
 
@@ -123,6 +123,15 @@ class GameRoom:
         if rest_time is not None and rest_time > 0:
             self.rest_time = rest_time
 
+    def get_time_left(self, now: Optional[float] = None) -> int:
+        """计算当前轮剩余时间（秒），由服务器统一计算并广播。"""
+        if now is None:
+            now = time.time()
+        if self.status == "playing" and self.round_start_time:
+            elapsed = max(0.0, now - self.round_start_time)
+            return int(max(0.0, self.round_time - elapsed))
+        return int(self.round_time)
+
     def get_next_word(self) -> str:
         """获取下一个词语"""
         import random
@@ -137,6 +146,8 @@ class GameRoom:
         return "画画"
 
     def get_public_state(self) -> dict:
+        now = time.time()
+        time_left = self.get_time_left(now)
         return {
             "room_id": self.room_id,
             "owner_id": self.owner_id,
@@ -145,9 +156,13 @@ class GameRoom:
             "drawer_id": self.drawer_id,
             "round_number": self.round_number,
             "max_rounds": self.max_rounds,
+            # 兼容字段：客户端可能读取 round_duration，也可能读取 round_time
             "round_time": self.round_time,
+            "round_duration": self.round_time,
             "rest_time": self.rest_time,
             "current_word": self.current_word,
+            # 由服务器计算的倒计时
+            "time_left": time_left,
         }
 
 
@@ -208,6 +223,8 @@ class NetworkServer:
         self.sock.listen(32)
         self._running.set()
         threading.Thread(target=self._accept_loop, daemon=True).start()
+        # 服务器端计时循环：周期性广播每个房间的 time_left
+        threading.Thread(target=self._timer_loop, daemon=True).start()
 
     def stop(self) -> None:
         self._running.clear()
@@ -229,6 +246,30 @@ class NetworkServer:
             except Exception:
                 if self._running.is_set():
                     pass
+
+    def _timer_loop(self) -> None:
+        """服务器端计时循环：每秒广播一次房间倒计时。"""
+        while self._running.is_set():
+            try:
+                now = time.time()
+                with self._lock:
+                    rooms = list(self.rooms.values())
+                for room in rooms:
+                    if room.status != "playing":
+                        continue
+                    payload = {
+                        "room_id": room.room_id,
+                        "round_number": room.round_number,
+                        "max_rounds": room.max_rounds,
+                        "round_duration": room.round_time,
+                        "time_left": room.get_time_left(now),
+                        "drawer_id": room.drawer_id,
+                        "current_word": room.current_word,
+                    }
+                    self.broadcast_room(room.room_id, Message("room_state", payload))
+            except Exception:
+                pass
+            time.sleep(1)
 
     def _session_loop(self, sess: ClientSession) -> None:
         buf = bytearray()
@@ -505,7 +546,6 @@ class NetworkServer:
             for sess in list(self.sessions.values()):
                 if sess.room_id == room_id and sess != exclude:
                     self._send(sess, msg)
-
 
 # ============== 主函数 ==============
 def main():

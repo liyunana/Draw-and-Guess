@@ -821,6 +821,13 @@ def build_room_list_ui(screen_size: tuple) -> Dict[str, Any]:
                     "已连接到服务器",
                     "正在发送创建房间请求...",
                 ]
+                # 记录进入创建房间加载界面的时间，用于超时重启本地服务器
+                try:
+                    APP_STATE["creating_started_at"] = pygame.time.get_ticks()
+                    APP_STATE["creating_server_retry_done"] = False
+                except Exception:
+                    APP_STATE["creating_started_at"] = 0
+                    APP_STATE["creating_server_retry_done"] = True
                 add_notification("正在创建房间...", color=(50, 180, 80))
                 net.create_room(f"{player_name}的房间")
                 # 预填充最小房间状态，待服务器广播覆盖
@@ -938,8 +945,10 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
         default_rounds = str(int(current_room.get("max_rounds") or 3))
     except Exception:
         default_rounds = "3"
+    # 优先使用服务器下发的 round_duration，其次兼容旧字段 round_time
     try:
-        default_round_time = str(int(current_room.get("round_duration") or 60))
+        rt = current_room.get("round_duration") or current_room.get("round_time") or 60
+        default_round_time = str(int(rt))
     except Exception:
         default_round_time = "60"
 
@@ -976,13 +985,19 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
     )
     time_input.text = default_round_time
 
+    # 休息时间默认值同样从房间状态读取（由服务器权威下发），避免被固定默认值覆盖
+    try:
+        default_rest_time = str(int(current_room.get("rest_time") or 10))
+    except Exception:
+        default_rest_time = "10"
+
     rest_input = TextInput(
         rect=pygame.Rect(input_x, panel_y + 2 * (row_h + row_gap), input_w, row_h),
         font_name="Microsoft YaHei",
         font_size=18,
-        placeholder="10"
+        placeholder=default_rest_time
     )
-    rest_input.text = "10"
+    rest_input.text = default_rest_time
 
     # 应用设置按钮（宽度与输入框接近，后续在绘制阶段按面板居中）
     apply_btn = Button(
@@ -1002,6 +1017,8 @@ def build_lobby_ui(screen_size: tuple) -> Dict[str, Any]:
                 current_room = APP_STATE.get("current_room") or {}
                 current_room["max_rounds"] = max_rounds
                 current_room["round_duration"] = round_time
+                current_room["round_time"] = round_time
+                current_room["rest_time"] = rest_time
                 APP_STATE["current_room"] = current_room
             except Exception:
                 pass
@@ -1305,15 +1322,14 @@ def process_network_messages(ui: Optional[Dict[str, Any]]) -> None:
 
 
 def update_and_draw_hud(screen: pygame.Surface, ui: Dict[str, Any]) -> None:
-    """更新倒计时并绘制顶部 HUD（计时、词、模式与画笔状态）。"""
+    """绘制顶部 HUD（计时、词、模式与画笔状态）。
+
+    倒计时数值完全以服务器下发的 room_state/MSG_ROOM_UPDATE 为准，
+    不在客户端自行递减，避免每个客户端各自计时导致时间不同步。
+    """
     hud = ui.get("hud", {})
     if not hud:
         return
-    now = pygame.time.get_ticks()
-    dt_ms = now - hud.get("last_tick", now)
-    hud["last_tick"] = now
-    # 更新倒计时（每秒减少）
-    hud["round_time_left"] = max(0, hud.get("round_time_left", 60) - dt_ms / 1000.0)
 
     # 背景条
     pad = 16
@@ -1707,7 +1723,7 @@ def main() -> None:
                             btn.handle_event(event)
 
                     elif APP_STATE["screen"] == "creating_room":
-                        # 创建房间加载界面：仅需要处理“返回房间列表”按钮
+                        # 创建房间加载界面：处理“返回房间列表”按钮，并在超时情况下尝试重启本地服务器
                         ui = APP_STATE["ui"]
                         if ui is None:
                             # 在右上角放置一个返回按钮，允许用户中断等待并回到房间列表
@@ -2030,6 +2046,33 @@ def main() -> None:
                 screen.fill((240, 242, 250))
 
                 ui = APP_STATE.get("ui") or {}
+
+                # 若在创建房间加载界面停留超过 3 秒，自动尝试重启本地服务器一次
+                try:
+                    started_at = APP_STATE.get("creating_started_at", 0) or 0
+                    retry_done = bool(APP_STATE.get("creating_server_retry_done", False))
+                    if started_at and not retry_done:
+                        elapsed = pygame.time.get_ticks() - started_at
+                        if elapsed > 3000:
+                            APP_STATE["creating_server_retry_done"] = True
+                            # 写入日志提示
+                            logs = APP_STATE.get("creating_logs")
+                            if isinstance(logs, list):
+                                logs.append("检测到创建房间等待超过3秒，尝试重启本地服务器...")
+                            # 使用当前设置中的端口尝试重启本地服务器
+                            try:
+                                port = int(APP_STATE["settings"].get("server_port", 5555) or 5555)
+                            except Exception:
+                                port = 5555
+                            try:
+                                ok = start_local_server(port)
+                                if isinstance(logs, list):
+                                    logs.append("本地服务器重启" + ("成功" if ok else "可能失败，请检查"))
+                            except Exception:
+                                if isinstance(logs, list):
+                                    logs.append("尝试重启本地服务器时出错")
+                except Exception:
+                    pass
 
                 try:
                     font_title = pygame.font.SysFont("Microsoft YaHei", 40)

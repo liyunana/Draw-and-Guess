@@ -28,7 +28,9 @@ def main():
     """启动服务器主函数"""
     logger.info("=" * 50)
     # 支持通过环境变量覆盖主机与端口
-    host = os.environ.get("HOST", DEFAULT_HOST)
+    # 默认绑定到 0.0.0.0，确保局域网内其他设备可通过本机 IP 访问。
+    # 如需仅本机访问，可设置环境变量 HOST=127.0.0.1。
+    host = os.environ.get("HOST") or "0.0.0.0"
     try:
         port = int(os.environ.get("PORT", DEFAULT_PORT))
     except Exception:

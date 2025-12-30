@@ -19,6 +19,7 @@ class GameRoom:
         self.max_rounds = 5
         self.round_start_time = 0
         self.round_duration = 60  # seconds
+        self.rest_time = 10  # 轮与轮之间建议休息时间（秒），目前仅作为配置广播
         self.drawer_order: List[str] = []  # 随机生成的绘画顺序（player_id列表）
         self.current_drawer_index = 0  # 当前绘者在顺序中的索引
 
@@ -86,6 +87,7 @@ class GameRoom:
             "round_number": self.round_number,
             "max_rounds": self.max_rounds,
             "round_duration": self.round_duration,
+            "rest_time": self.rest_time,
             "time_left": time_left,
             "current_word": self.current_word if (self.status == "playing" and for_drawer) else None,
             "drawer_order": self.drawer_order,  # 绘画顺序列表
