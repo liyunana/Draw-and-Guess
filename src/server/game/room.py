@@ -126,9 +126,10 @@ class GameRoom:
             if self.get_time_left() <= 0:
                 # 休息结束：进入下一回合或结束游戏
                 ok = self.next_round()
-                if not ok:
-                    return True
-                self.status = "playing"
+                if ok:
+                    # next_round 成功，进入 playing 状态
+                    self.status = "playing"
+                # 无论成功与否（游戏结束时 ok=False），都表示状态变化
                 return True
         return False
 
